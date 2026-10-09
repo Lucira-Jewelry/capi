@@ -1,10 +1,14 @@
-# Deploying the collector to a staging project (Google Cloud)
+# Deploying a staging collector into an existing Google Cloud project
 
 What is in the repository for this: `Dockerfile`, `deploy/` (Firestore indexes, retention policies, rules, setup script),
 `.env.example` (every setting). The commands below have **not** been run against a real project yet: they are the
 intended path, to be checked off as we go. The container itself has been built and run locally (see "What was checked").
 
-Use a project that holds nothing real. Replace `PROJECT`, `REGION` (for example `asia-south1`).
+This guide supports a staging service in an existing project. Keep its data isolated in a dedicated Firestore database named
+`datahash-staging`; the application refuses to start in production if no named database is configured. Replace `PROJECT`
+with the project ID (for example `lucirajewelry-prod`) and `REGION` (for example `asia-south1`).
+Use a dedicated service account for this service. Its conditional Firestore grant below is limited to the staging database;
+production credentials and the `(default)` database remain separate.
 
 ## 1. One-time project setup
 
@@ -13,16 +17,17 @@ gcloud config set project PROJECT
 gcloud services enable run.googleapis.com firestore.googleapis.com secretmanager.googleapis.com \
   artifactregistry.googleapis.com cloudscheduler.googleapis.com cloudbuild.googleapis.com
 
-# Database (Native mode) and its indexes and retention policies
-gcloud firestore databases create --location=REGION
-deploy/setup-firestore.sh PROJECT
+# Separate database (Native mode) for staging, with its own indexes and retention policies
+gcloud firestore databases create --project=PROJECT --database=datahash-staging --location=REGION --type=firestore-native
+FIRESTORE_DATABASE=datahash-staging deploy/setup-firestore.sh PROJECT
 # optional, blocks direct access to the data from anywhere but the collector:
 #   (cd deploy && firebase deploy --only firestore:rules --project PROJECT)
 
-# The identity the collector runs as: it may use Firestore and read its own secrets, nothing else
+# The identity the collector runs as; Firestore access is limited to the staging database
 gcloud iam service-accounts create collector --display-name "Collector"
 SA=collector@PROJECT.iam.gserviceaccount.com
-gcloud projects add-iam-policy-binding PROJECT --member serviceAccount:$SA --role roles/datastore.user
+gcloud projects add-iam-policy-binding PROJECT --member serviceAccount:$SA --role roles/datastore.user \
+  --condition='expression=resource.name=="projects/PROJECT/databases/datahash-staging",title=DatahashStagingFirestore,description=Access only to the staging Firestore database'
 
 gcloud artifacts repositories create collector --repository-format=docker --location=REGION
 ```
@@ -57,7 +62,7 @@ gcloud builds submit --tag $IMAGE .
 gcloud run deploy collector --image $IMAGE --region REGION --service-account $SA \
   --allow-unauthenticated \
   --max-instances 2 \
-  --set-env-vars GOOGLE_CLOUD_PROJECT=PROJECT,OUTBOUND_SENDS=off,PUBLIC_URL=$URL \
+  --set-env-vars GOOGLE_CLOUD_PROJECT=PROJECT,FIRESTORE_DATABASE=datahash-staging,OUTBOUND_SENDS=off,PUBLIC_URL=$URL \
   --set-secrets SECRETS_KEY=SECRETS_KEY:latest,ADMIN_TOKEN=ADMIN_TOKEN:latest,INTERNAL_TOKEN=INTERNAL_TOKEN:latest
 ```
 

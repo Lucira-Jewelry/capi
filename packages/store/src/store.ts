@@ -28,7 +28,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function createFirestore(projectId = process.env.GOOGLE_CLOUD_PROJECT ?? 'datahash-dev'): Firestore {
   // Picks up FIRESTORE_EMULATOR_HOST automatically when it is set.
-  return new Firestore({ projectId, ignoreUndefinedProperties: true });
+  // Production requires an explicit database ID so a staging service in a shared GCP project cannot silently write to
+  // the project's (default) database. Local development and emulator tests keep the SDK's default behavior.
+  const databaseId = process.env.FIRESTORE_DATABASE?.trim();
+  return new Firestore({ projectId, ...(databaseId ? { databaseId } : {}), ignoreUndefinedProperties: true });
 }
 
 /** Deterministic touch ID: re-sending the same identify call never duplicates touches. */
