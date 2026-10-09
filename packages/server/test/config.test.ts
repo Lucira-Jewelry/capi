@@ -4,6 +4,7 @@ import { assertProductionConfig, productionProblems } from '../src';
 const good = {
   NODE_ENV: 'production',
   GOOGLE_CLOUD_PROJECT: 'my-staging-project',
+  FIRESTORE_DATABASE: 'datahash-staging',
   SECRETS_KEY: Buffer.alloc(32, 7).toString('base64'),
   ADMIN_TOKEN: 'a'.repeat(40),
   INTERNAL_TOKEN: 'b'.repeat(40),

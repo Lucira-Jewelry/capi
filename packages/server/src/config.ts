@@ -15,6 +15,9 @@ export function productionProblems(env: Record<string, string | undefined>, file
   const v = (name: string) => env[name]?.trim() || undefined;
 
   if (v('FIRESTORE_EMULATOR_HOST')) problems.push('FIRESTORE_EMULATOR_HOST is set: production must use the real Firestore, not the emulator.');
+  const database = v('FIRESTORE_DATABASE');
+  if (!database || database === '(default)') problems.push('FIRESTORE_DATABASE must name an explicit Firestore database (for example datahash-staging); production will not use (default).');
+  else if (!/^[a-z][a-z0-9-]{2,61}[a-z0-9]$/.test(database)) problems.push('FIRESTORE_DATABASE must be a valid named Firestore database ID.');
   if (!v('GOOGLE_CLOUD_PROJECT')) problems.push('GOOGLE_CLOUD_PROJECT is not set: say which project\'s Firestore to use (otherwise a default development name would be used).');
 
   const key = v('SECRETS_KEY');
