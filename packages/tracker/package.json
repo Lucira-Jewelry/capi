@@ -1,0 +1,14 @@
+{
+  "name": "@datahash/tracker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/tracker.ts",
+  "types": "src/tracker.ts",
+  "scripts": {
+    "build": "esbuild src/entry.ts --bundle --minify --format=iife --target=es2018 --outfile=dist/tracker.js"
+  },
+  "dependencies": {
+    "@datahash/core": "*"
+  }
+}

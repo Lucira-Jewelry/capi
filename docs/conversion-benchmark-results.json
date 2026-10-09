@@ -1,0 +1,151 @@
+{
+  "auditDate": "2026-10-09",
+  "environment": {
+    "node": "v24.18.0",
+    "architecture": "arm64",
+    "platform": "darwin",
+    "cpu": "Apple M5"
+  },
+  "syntheticOnly": true,
+  "probes": {
+    "metaWebsitePayload": {
+      "event_name": "Purchase",
+      "event_time": 1791504000,
+      "event_id": "synthetic-order-1",
+      "action_source": "system_generated",
+      "user_data": {
+        "em": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ]
+      },
+      "custom_data": {
+        "value": 100,
+        "currency": "INR"
+      }
+    },
+    "googleLeadAndPurchaseUseSameAction": true,
+    "googleGmailNormalization": {
+      "actual": "janedoe+shopping@gmail.com",
+      "expectedByCurrentGuide": "janedoe@gmail.com"
+    },
+    "localSourceKeysDifferForSameBusinessOrder": true,
+    "genericDropsDirectClickId": {
+      "ok": true,
+      "sale": {
+        "source": "webhook",
+        "eventId": "direct-click",
+        "eventName": "Purchase",
+        "channel": "store",
+        "occurredAt": "2026-10-09T00:00:00.000Z",
+        "consent": true
+      }
+    },
+    "extraContactFieldsSurviveLogRedaction": {
+      "phone": "[redacted]",
+      "email": "[redacted]",
+      "customer": {
+        "email": "synthetic-extra"
+      }
+    },
+    "futureConversionEligibility": {
+      "action": "send",
+      "touch": null
+    },
+    "withdrawalEndpoint": {
+      "response": {
+        "status": 202,
+        "body": {
+          "status": "skipped",
+          "reason": "no_consent"
+        }
+      },
+      "writes": 0
+    },
+    "googleMalformedSuccess": {
+      "outcome": "sent",
+      "response": "uploaded"
+    },
+    "browserStorageAfterWithdrawal": {
+      "localStorageRetained": true,
+      "cookieRetained": true
+    },
+    "anotherSiteKeyReadsSameTouches": true,
+    "queueStarvation": {
+      "dueBeyondFirst500": 1,
+      "returned": 0
+    }
+  },
+  "timings": [
+    {
+      "label": "four platform contact hashes",
+      "iterations": 5000,
+      "rounds": 7,
+      "medianMs": 42.18062500000008,
+      "operationsPerSecond": 118537.83579546274
+    },
+    {
+      "label": "eligibility with 50 touches",
+      "iterations": 10000,
+      "rounds": 7,
+      "medianMs": 60.02154200000007,
+      "operationsPerSecond": 166606.84925422256
+    },
+    {
+      "label": "both destination payload builders",
+      "iterations": 20000,
+      "rounds": 7,
+      "medianMs": 15.240540999999894,
+      "operationsPerSecond": 1312289.3734546653
+    }
+  ],
+  "dispatchTimings": [
+    {
+      "latencyMs": 5,
+      "deliveries": 50,
+      "elapsedMs": 290.97862499999997,
+      "deliveriesPerSecond": 171.83392766393067,
+      "maxConcurrent": 1,
+      "summary": {
+        "considered": 50,
+        "sent": 50,
+        "retried": 0,
+        "failed": 0,
+        "notConnected": 0,
+        "lostClaim": 0
+      },
+      "excludes": "Firestore, OAuth, external network, real platform processing"
+    },
+    {
+      "latencyMs": 25,
+      "deliveries": 50,
+      "elapsedMs": 1319.502,
+      "deliveriesPerSecond": 37.89308390589783,
+      "maxConcurrent": 1,
+      "summary": {
+        "considered": 50,
+        "sent": 50,
+        "retried": 0,
+        "failed": 0,
+        "notConnected": 0,
+        "lostClaim": 0
+      },
+      "excludes": "Firestore, OAuth, external network, real platform processing"
+    },
+    {
+      "latencyMs": 100,
+      "deliveries": 50,
+      "elapsedMs": 5070.352416999999,
+      "deliveriesPerSecond": 9.861247481015088,
+      "maxConcurrent": 1,
+      "summary": {
+        "considered": 50,
+        "sent": 50,
+        "retried": 0,
+        "failed": 0,
+        "notConnected": 0,
+        "lostClaim": 0
+      },
+      "excludes": "Firestore, OAuth, external network, real platform processing"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@datahash/admin-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --minify --target=es2020 --outfile=dist/app.js && cp static/index.html static/app.css dist/"
+  }
+}

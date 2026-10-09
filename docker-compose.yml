@@ -1,0 +1,38 @@
+# Local development stack. See PLAN.md, Part 1.
+#
+#   docker compose up firestore            # Firestore emulator only (no GTM container needed)
+#   docker compose --profile sgtm up       # also run sGTM (needs CONTAINER_CONFIG in .env)
+#
+# Copy .env.example to .env first.
+
+services:
+  firestore:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command: gcloud emulators firestore start --host-port=0.0.0.0:8080
+    ports:
+      - "8080:8080"
+
+  # sGTM production-mode server. CONTAINER_CONFIG is copied from the GTM server container
+  # (Admin > Container Settings > Manually provision tagging server).
+  sgtm:
+    profiles: ["sgtm"]
+    image: gcr.io/cloud-tagging-10302018/gtm-cloud-image:stable
+    ports:
+      - "8081:8080"
+    environment:
+      CONTAINER_CONFIG: ${CONTAINER_CONFIG:-}
+      PREVIEW_SERVER_URL: http://localhost:8082
+      FIRESTORE_EMULATOR_HOST: firestore:8080
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-datahash-dev}
+    depends_on:
+      - firestore
+
+  # sGTM preview server, used by the GTM UI debug mode.
+  sgtm-preview:
+    profiles: ["sgtm"]
+    image: gcr.io/cloud-tagging-10302018/gtm-cloud-image:stable
+    ports:
+      - "8082:8080"
+    environment:
+      RUN_AS_PREVIEW_SERVER: "true"
+      CONTAINER_CONFIG: ${CONTAINER_CONFIG:-}

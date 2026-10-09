@@ -1,0 +1,17 @@
+# Files Cloud Build should not upload. Docker has a separate build-context filter.
+.gcloudignore
+.git
+.git/**
+**/node_modules
+**/node_modules/**
+**/dist
+**/dist/**
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.firebase
+.firebase/**
+docs
+docs/**

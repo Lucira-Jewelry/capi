@@ -1,0 +1,29 @@
+{
+  "name": "datahash",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:emulator": "FIRESTORE_EMULATOR_HOST=localhost:8080 vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "npm run build -w @datahash/tracker && npm run build -w @datahash/admin-ui",
+    "dev": "OUTBOUND_SENDS=${OUTBOUND_SENDS:-on} SECRETS_KEY=${SECRETS_KEY:-ZGV2LW9ubHktc2VjcmV0cy1rZXktMzItYnl0ZXMhISE=} ADMIN_TOKEN=${ADMIN_TOKEN:-dev-admin-token} FIRESTORE_EMULATOR_HOST=${FIRESTORE_EMULATOR_HOST:-localhost:8080} DISPATCH_INTERVAL_SECONDS=${DISPATCH_INTERVAL_SECONDS:-30} tsx packages/server/src/main.ts",
+    "build:release": "npm run build && node scripts/build-release.mjs",
+    "start": "NODE_ENV=production node dist/release/server.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.24.0",
+    "jsdom": "^25.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

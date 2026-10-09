@@ -1,0 +1,17 @@
+{
+  "name": "@datahash/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "dev": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@datahash/core": "*",
+    "@datahash/ingest": "*",
+    "@datahash/senders": "*",
+    "@datahash/store": "*"
+  }
+}

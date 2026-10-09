@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+*.log
+.firebase/
+firestore-debug.log
+.env.*
+!.env.example
+.DS_Store
+*.zip
