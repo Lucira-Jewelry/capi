@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { importCsv } from './import-helper';
 import { processSale } from '@datahash/ingest';
 import { previewPayload } from '@datahash/senders';
 import { ConnectionsRepo, createFirestore, SalesRepo, SecretBox, Store, TenantRegistry } from '@datahash/store';
@@ -12,7 +13,7 @@ afterAll(async () => {
   if (emulator) await db.terminate();
 });
 
-type View = { tenant: { tenantId: string }; siteKeys: Array<{ key: string; trackingHost?: string; snippet: string; dns?: { type: string; name: string; short: string; target: string; local: boolean; ready: boolean } }> };
+type View = { tenant: { tenantId: string }; siteKeys: Array<{ key: string; trackingHost?: string; snippet: string; gtmSnippet: string; dns?: { type: string; name: string; short: string; target: string; local: boolean; ready: boolean } }> };
 
 describe.skipIf(!emulator)('admin: tracking address and payload preview (Firestore emulator)', () => {
   const registry = emulator ? new TenantRegistry(db, { cacheMs: 0 }) : (null as never);
@@ -52,6 +53,10 @@ describe.skipIf(!emulator)('admin: tracking address and payload preview (Firesto
     const key = created.siteKeys[0]!;
     expect(key.trackingHost).toBe(h);
     expect(key.snippet).toBe(`<script src="https://${h}/tracker.js" data-key="${key.key}" data-endpoint="https://${h}" async></script>`);
+    // The Tag Manager loader follows the brand's own tracking address and leaves consent at the default (opt-in).
+    expect(key.gtmSnippet).toContain(`s.setAttribute('data-endpoint', 'https://${h}');`);
+    expect(key.gtmSnippet).toContain(`s.src = 'https://${h}/tracker.js';`);
+    expect(key.gtmSnippet).not.toContain('data-consent-mode');
     expect(key.dns).toEqual({ type: 'CNAME', name: h, short: h.split('.')[0], target: 'collector.product.com', local: false, ready: true });
   });
 
@@ -140,7 +145,7 @@ describe.skipIf(!emulator)('admin: tracking address and payload preview (Firesto
       touches: [{ clickedAt, gclid: 'G-preview', fbclid: 'F-preview', fbc: `fb.1.${clickedAt.getTime()}.F-preview` }],
     });
     const today = new Date().toISOString().slice(0, 10);
-    await call('POST', `/tenants/${id}/import`, { csv: `eventId,channel,occurredAt,value,phone,consent\nP1,store,${today},85000,9876543210,yes` });
+    await importCsv(call, id, `eventId,channel,occurredAt,value,phone,consent\nP1,store,${today},85000,9876543210,yes`);
     const sales = (await call('GET', `/tenants/${id}/sales`)).body as { sales: Array<{ saleKey: string }> };
     const key = sales.sales[0]!.saleKey;
 
@@ -168,7 +173,7 @@ describe.skipIf(!emulator)('admin: tracking address and payload preview (Firesto
     const created = (await call('POST', '/tenants', { name: 'Unconnected' })).body as View;
     const id = created.tenant.tenantId;
     const today = new Date().toISOString().slice(0, 10);
-    await call('POST', `/tenants/${id}/import`, { csv: `eventId,channel,occurredAt,phone,consent\nU1,store,${today},9876543210,yes` });
+    await importCsv(call, id, `eventId,channel,occurredAt,phone,consent\nU1,store,${today},9876543210,yes`);
     const key = ((await call('GET', `/tenants/${id}/sales`)).body as { sales: Array<{ saleKey: string }> }).sales[0]!.saleKey;
     const meta = (await call('GET', `/tenants/${id}/sales/${key}/deliveries/meta/preview`)).body as { url: string; notes: string[] };
     expect(meta.url).toContain('<dataset id>');

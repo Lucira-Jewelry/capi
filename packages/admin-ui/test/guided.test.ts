@@ -546,3 +546,117 @@ describe('the brands list with many brands', () => {
     expect(document.querySelector('.seg')).toBeNull();
   });
 });
+
+describe('importing sales needs a passing check of the current file', () => {
+  const SUMMARY = { rows: 3, newSales: 2, alreadyImported: 1, withContact: 2, withoutContact: 1, consent: { yes: 1, no: 0, notStated: 2 }, withName: 1, withPostalCode: 0, value: { INR: 1300 }, firstDate: '2026-10-07', lastDate: '2026-10-08' };
+  const posted: Array<Record<string, unknown>> = [];
+  let clean = true;
+
+  async function open() {
+    posted.length = 0;
+    mount('#/brand/b1/sales', {
+      'POST /tenants/b1/import': (body) => {
+        const b = body as Record<string, unknown>;
+        posted.push(b);
+        if (b.dryRun) {
+          return clean
+            ? { dryRun: true, counts: { recorded: 0, duplicate: 0, invalid: 0, error: 0 }, results: [{ line: 2, status: 'valid' }], summary: SUMMARY, checkToken: 'tok-1' }
+            : { dryRun: true, counts: { recorded: 0, duplicate: 0, invalid: 1, error: 0 }, results: [{ line: 2, status: 'invalid', error: 'channel must be one of: store' }] };
+        }
+        return { dryRun: false, counts: { recorded: 2, duplicate: 1, invalid: 0, error: 0 }, results: [] };
+      },
+    });
+    await tick(150);
+    btn('Import sales')!.click();
+    await tick(30);
+  }
+  const type = (v: string) => {
+    const t = q<HTMLTextAreaElement>('dialog textarea');
+    t.value = v;
+    t.dispatchEvent(new Event('input'));
+  };
+  const submit = async () => {
+    q<HTMLButtonElement>('dialog button[type=submit]').click();
+    await tick(50);
+  };
+
+  it('starts as "Check file", imports nothing on the first press, and shows a summary', async () => {
+    clean = true;
+    await open();
+    expect(q('dialog button[type=submit]').textContent).toBe('Check file');
+    type('eventId\nA');
+    await submit();
+    expect(posted.map((p) => p.dryRun)).toEqual([true]);
+    expect(q('dialog').textContent).toContain('Ready to import 2 sales.');
+    expect(q('dialog').textContent).toContain('1 row is already imported');
+    expect(q('dialog').textContent).toContain('1 row has no phone or email');
+    expect(q('dialog').textContent).toContain('Consent: 1 yes, 0 no, 2 not stated.');
+    expect(q('dialog button[type=submit]').textContent).toBe('Import 2 sales');
+  });
+
+  it('the second press imports exactly the checked file, with its check token', async () => {
+    clean = true;
+    await open();
+    type('eventId\nA');
+    await submit();
+    await submit();
+    expect(posted).toHaveLength(2);
+    expect(posted[1]).toEqual({ csv: 'eventId\nA', checkToken: 'tok-1' });
+    expect(q('dialog').classList.contains('closing')).toBe(true);
+  });
+
+  it('changing the file after the check takes the import away until it is checked again', async () => {
+    clean = true;
+    await open();
+    type('eventId\nA');
+    await submit();
+    type('eventId\nA\nB');
+    expect(q('dialog button[type=submit]').textContent).toBe('Check file');
+    expect(q('dialog').textContent).not.toContain('Ready to import');
+    await submit();
+    expect(posted.map((p) => p.dryRun)).toEqual([true, true]); // checked again, not imported
+  });
+
+  it('a file with problems cannot be imported', async () => {
+    clean = false;
+    await open();
+    type('eventId\nA');
+    await submit();
+    expect(q('dialog').textContent).toContain('Line 2: channel must be one of: store');
+    expect(q('dialog button[type=submit]').textContent).toBe('Check file');
+    await submit();
+    expect(posted.every((p) => p.dryRun === true)).toBe(true);
+  });
+});
+
+describe('installing the script', () => {
+  const gtm = "<script>\n(function () {\n  var s = document.createElement('script');\n  s.setAttribute('data-key', 'pk_x');\n})();\n</script>";
+  const direct = '<script src="https://c/tracker.js" data-key="pk_x" data-endpoint="https://c" async></script>';
+
+  it('offers Google Tag Manager and direct installation as separate, labelled copy boxes with the generated code', async () => {
+    view.siteKeys = [{ ...site, snippet: direct, gtmSnippet: gtm }];
+    mount('#/brand/b1/website');
+    await tick(150);
+    btn('Install script')!.click();
+    await tick(30);
+    const dialog = q('dialog');
+    const titles = Array.from(dialog.querySelectorAll('.step-title')).map((e) => e.textContent);
+    expect(titles).toEqual(['Google Tag Manager', 'Direct website installation']);
+    const boxes = Array.from(dialog.querySelectorAll<HTMLTextAreaElement>('textarea')).map((t) => t.value);
+    expect(boxes).toEqual([gtm, direct]);
+    expect(dialog.textContent).toContain('Custom HTML tag');
+    expect(dialog.textContent).toContain('Preview and Publish');
+    expect(dialog.textContent).toContain('Remove any older tracker tag');
+    expect(dialog.textContent).toContain('typeof window.datahash');
+    expect(dialog.textContent).toContain('does not prove');
+  });
+
+  it('still works against a server that only sends the plain tag', async () => {
+    view.siteKeys = [{ ...site, snippet: direct }];
+    mount('#/brand/b1/website');
+    await tick(150);
+    btn('Install script')!.click();
+    await tick(30);
+    expect(Array.from(q('dialog').querySelectorAll('.step-title')).map((e) => e.textContent)).toEqual(['Direct website installation']);
+  });
+});

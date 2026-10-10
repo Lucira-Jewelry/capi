@@ -94,6 +94,13 @@ function rootDomain(): string | undefined {
   return undefined;
 }
 
+/** Meta's browser ID, set by the brand's Meta pixel (the `_fbp` cookie). Nothing is created here. */
+export function readFbp(): string | undefined {
+  const m = safe(() => document.cookie.match(/(?:^|; )_fbp=([^;]*)/), null);
+  const v = m ? decodeURIComponent(m[1] ?? '') : '';
+  return /^fb\.\d\.\d{10,13}\.\d{1,20}$/.test(v) ? v : undefined;
+}
+
 export function extractContact(form: HTMLFormElement): { phone?: string; email?: string } {
   const out: { phone?: string; email?: string } = {};
   for (const el of Array.from(form.elements) as HTMLInputElement[]) {
@@ -299,10 +306,11 @@ export function createTracker(config: TrackerConfig) {
       email: contact.email,
       country: config.country,
       consent: c === 'unknown' ? undefined : { ads: c === 'granted' },
+      fbp: readFbp(),
       touches: all,
     };
 
-    const signature = fingerprint(JSON.stringify([payload.phone, payload.email, all.map(sig)]));
+    const signature = fingerprint(JSON.stringify([payload.phone, payload.email, payload.fbp, all.map(sig)]));
     if (sentSignatures.has(signature)) return { sent: false, reason: 'duplicate' };
 
     try {

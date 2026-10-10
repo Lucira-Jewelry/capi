@@ -31,6 +31,18 @@ export function parseAmount(v: unknown): number | null {
 }
 
 /**
+ * Is the date at the start of an ISO date/timestamp a real day? `new Date('2026-02-30')` quietly becomes 2 March, so
+ * the calendar is checked on its own. Text that does not start with an ISO date is not judged here.
+ */
+export function hasRealCalendarDay(s: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (!m) return true;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const t = new Date(Date.UTC(y, mo - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d;
+}
+
+/**
  * Full timestamps are used as they are. Date-only values (Zoho Closing_Date) get a fixed time of day
  * in the given offset so the sale does not slip to the previous day in UTC.
  */
@@ -38,6 +50,7 @@ export function parseDate(v: unknown, dateOnlyOffset = '+05:30'): Date | null {
   const s = asString(v);
   if (!s) return null;
   const iso = /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T12:00:00${dateOnlyOffset}` : s;
+  if (!hasRealCalendarDay(iso)) return null;
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : d;
 }

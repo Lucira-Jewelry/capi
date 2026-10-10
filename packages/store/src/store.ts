@@ -7,6 +7,7 @@ import {
 } from '@google-cloud/firestore';
 import {
   hashEmailForGoogle,
+  normalizeFbp,
   hashEmailForMeta,
   hashPhoneForGoogle,
   hashPhoneForMeta,
@@ -107,6 +108,8 @@ export class Store {
     if (gp) incomingHashes.googlePhone = gp;
     if (me) incomingHashes.metaEmail = me;
     if (ge) incomingHashes.googleEmail = ge;
+    const fbp = normalizeFbp(input.fbp);
+    if (fbp) incomingHashes.fbp = fbp;
 
     const expiresAt = new Date(now.getTime() + this.retentionDays * DAY_MS);
     const keys = [phoneKey, emailKey].filter((k): k is string => Boolean(k));

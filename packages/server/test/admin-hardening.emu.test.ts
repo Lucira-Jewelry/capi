@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { importCsv } from './import-helper';
 import { eraseCustomer, processSale } from '@datahash/ingest';
 import { ConnectionsRepo, createFirestore, SalesRepo, SecretBox, SendControl, Store, TenantRegistry } from '@datahash/store';
 import { handleAdmin, type AdminDeps } from '../src';
@@ -77,7 +78,7 @@ describe.skipIf(!emulator)('admin hardening (Firestore emulator)', () => {
   it('erasing a customer works through the console API, even for a suspended brand, and asks for a contact', async () => {
     const created = (await call('POST', '/tenants', { name: 'Erase Co' })).body as { tenant: { tenantId: string } };
     const id = created.tenant.tenantId;
-    await call('POST', `/tenants/${id}/import`, { csv: 'eventId,channel,occurredAt,phone\nA1,store,2026-10-07,9876543210' });
+    await importCsv(call, id, 'eventId,channel,occurredAt,phone\nA1,store,2026-10-07,9876543210');
     expect(((await call('GET', `/tenants/${id}/sales`)).body as { sales: unknown[] }).sales).toHaveLength(1);
 
     expect(await call('POST', `/tenants/${id}/customers/erase`, {})).toMatchObject({ status: 400, body: { error: 'contact_required' } });
@@ -173,7 +174,7 @@ describe.skipIf(!emulator)('admin hardening (Firestore emulator)', () => {
 
     // A sale for that customer arriving afterwards is recorded but never queued for sending.
     const today = new Date().toISOString().slice(0, 10);
-    await call('POST', `/tenants/${id}/import`, { csv: `eventId,channel,occurredAt,phone,consent\nS1,store,${today},9876543210,yes` });
+    await importCsv(call, id, `eventId,channel,occurredAt,phone,consent\nS1,store,${today},9876543210,yes`);
     const sales = (await call('GET', `/tenants/${id}/sales`)).body as { sales: Array<{ deliveries: Array<{ status: string; skipReason?: string }> }> };
     expect(sales.sales[0]?.deliveries.every((d) => d.status === 'skipped' && d.skipReason === 'consent_withdrawn')).toBe(true);
     expect(await store.isSuppressed([])).toBe(false);

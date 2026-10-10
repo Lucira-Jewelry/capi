@@ -28,6 +28,9 @@ export const DEFAULT_ZOHO_MAPPING: ZohoMapping = {
   eventName: 'Purchase',
 };
 
+/** The optional customer-detail mapping fields, which are the same names as on the sale. */
+const DETAIL_FIELDS = ['firstName', 'lastName', 'city', 'state', 'postalCode', 'country', 'customerId'] as const;
+
 const DEFAULT_TRUE = ['true', 'yes', 'y', '1', 'consented', 'granted', 'agreed'];
 
 const norm = (s: string) => s.trim().toLowerCase();
@@ -36,7 +39,7 @@ const norm = (s: string) => s.trim().toLowerCase();
 export function zohoFieldsFromMapping(m: ZohoMapping): string[] {
   return [
     ...new Set(
-      [m.dealId, m.stage, m.amount, m.occurredAt, m.fallbackOccurredAt, m.phone, m.email, m.store, m.channel, m.consent].filter(
+      [m.dealId, m.stage, m.amount, m.occurredAt, m.fallbackOccurredAt, m.phone, m.email, ...DETAIL_FIELDS.map((f) => m[f]), m.store, m.channel, m.consent].filter(
         (f): f is string => Boolean(f),
       ),
     ),
@@ -45,7 +48,7 @@ export function zohoFieldsFromMapping(m: ZohoMapping): string[] {
 
 /** Paths holding plain contact details. */
 export function zohoPiiPaths(m: ZohoMapping): string[] {
-  return [m.phone, m.email].filter((f): f is string => Boolean(f));
+  return [m.phone, m.email, ...DETAIL_FIELDS.map((f) => m[f])].filter((f): f is string => Boolean(f));
 }
 
 /**
@@ -104,6 +107,10 @@ export function mapZohoDeal(record: unknown, m: ZohoMapping): AdapterResult {
   if (phone) sale.phone = phone;
   const email = m.email ? asString(getPath(record, m.email)) : undefined;
   if (email) sale.email = email;
+  for (const f of DETAIL_FIELDS) {
+    const v = m[f] ? asString(getPath(record, m[f]!)) : undefined;
+    if (v) sale[f] = v;
+  }
 
   if (m.consent) {
     const raw = asString(getPath(record, m.consent));

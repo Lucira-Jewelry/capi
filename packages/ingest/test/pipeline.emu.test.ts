@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { buildFbc } from '@datahash/core';
+import { buildFbc, sha256Hex } from '@datahash/core';
 import { createFirestore, SalesRepo, Store } from '@datahash/store';
 import { DEFAULT_ZOHO_MAPPING, processSale, type IncomingSale, type IngestTenant } from '../src';
 
@@ -84,6 +84,38 @@ describe.skipIf(!emulator)('processSale (Firestore emulator)', () => {
     expect(saved?.hashes.googleEmail).toBeTruthy();
     expect(JSON.stringify(saved)).not.toContain('98765');
     expect(JSON.stringify(saved)).not.toContain('priya@');
+  });
+
+  it('keeps name, place and customer ID as hashes (country as given), never in plain text', async () => {
+    const { sales, tenant, deps } = setup();
+    const result = await processSale(
+      storeSale({ consent: true, email: 'priya@example.com', firstName: 'Priya', lastName: 'Shah', city: 'Pune', state: 'Maharashtra', postalCode: '411 001', country: 'India', customerId: 'C-9' }),
+      tenant,
+      deps,
+    );
+    const saved = await sales.getSale(result.saleKey);
+    expect(saved?.hashes).toMatchObject({ googleRegion: 'IN', googlePostal: '411001' });
+    expect(saved?.hashes.metaState).toBe(sha256Hex('mh'));
+    for (const k of ['metaFirstName', 'metaLastName', 'metaCity', 'metaZip', 'metaCountry', 'metaExternalId', 'googleFirstName', 'googleLastName'] as const) {
+      expect(saved?.hashes[k]).toMatch(/^[0-9a-f]{64}$/);
+    }
+    const text = JSON.stringify(saved);
+    for (const plain of ['priya', 'shah', 'C-9']) expect(text.toLowerCase()).not.toContain(plain.toLowerCase());
+  });
+
+  it('does not guess the country from the phone number', async () => {
+    const { sales, tenant, deps } = setup();
+    const result = await processSale(storeSale({ consent: true, phone: '+971 50 123 4567', firstName: 'Priya', lastName: 'Shah', postalCode: '411001' }), tenant, deps);
+    const saved = await sales.getSale(result.saleKey);
+    expect(saved?.hashes.googleRegion).toBeUndefined();
+    expect(saved?.hashes.metaCountry).toBeUndefined();
+  });
+
+  it('carries the browser ID seen on the website onto the sale', async () => {
+    const { store, sales, tenant, deps } = setup();
+    await store.identify({ phone: '9876543210', consent: { ads: true }, fbp: 'fb.1.1700000000000.123456', now: daysAgo(5) });
+    const result = await processSale(storeSale(), tenant, deps);
+    expect((await sales.getSale(result.saleKey))?.hashes.fbp).toBe('fb.1.1700000000000.123456');
   });
 
   it('skips online sales (the Shopify apps report them) and records why', async () => {

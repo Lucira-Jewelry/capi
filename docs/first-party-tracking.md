@@ -43,7 +43,7 @@ Only through the script tag, which the brand pastes into its pages before `</hea
 <script src="https://track.lucirajewelry.com/tracker.js" data-key="pk_…" data-endpoint="https://track.lucirajewelry.com" async></script>
 ```
 
-Nothing else on the site changes. If the tag is loaded through Google Tag Manager, paste the same tag as a custom HTML tag.
+Nothing else on the site changes. For Google Tag Manager the console gives a separate loader (a Custom HTML tag that builds the script element and sets its attributes); see [install-script.md](install-script.md) for both options and how to check them.
 
 ## "Check setup" (console → brand → Website → the site key)
 
@@ -56,7 +56,7 @@ Runs from our server and tests, in the order things usually break:
 | Script file | `/tracker.js` loads as JavaScript | |
 | Permission for the website | the brand's site is allowed to talk to the address with cookies (catches a CDN stripping headers) | |
 | First-party cookie | a test click makes the collector set the HttpOnly (and Secure, on HTTPS) cookie. Nothing is stored on our side | explains a missing `X-Forwarded-Proto` or an unrecognised address |
-| Script tag on the website | the tag with this key is in the HTML of the brand's pages | only a warning: a tag added later by Google Tag Manager is not visible in the HTML |
+| Script tag on the website | the tag with this key is in the HTML of the brand's pages | only a warning: a tag added later by Google Tag Manager is not visible in the HTML (check `typeof window.datahash` in the browser instead) |
 
 Items that depend on the address being reachable are skipped, not failed, until it is. The check refuses to contact private or loopback addresses, so it cannot be used to probe a private network. A check that passes here proves our server can reach the address; it does not prove the visitors' browsers can (a DNS record that has not spread yet, a corporate filter). The final proof is always opening the brand's site and watching `tracker.js` load from the tracking address.
 

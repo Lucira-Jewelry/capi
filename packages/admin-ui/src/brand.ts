@@ -1,4 +1,4 @@
-import { api } from './api';
+import { ApiError, api } from './api';
 import {
   CHANNEL_LABEL,
   DEST_LABEL,
@@ -32,7 +32,7 @@ import {
   toast,
   type Child,
 } from './dom';
-import { copyField, secretBox } from './widgets';
+import { copyField, installOptions, secretBox } from './widgets';
 import { emptyState, formDialog, listRow, more } from './ui';
 
 interface Ctx {
@@ -516,9 +516,10 @@ function addSiteDialog(c: Ctx) {
 function installDialog(k: SiteKey) {
   formDialog({
     title: 'Install the script',
-    lead: 'Paste this on every page of the website, just before </head>. Nothing else on the site needs to change.',
+    lead: 'Choose how this website is set up. Nothing else on the site needs to change.',
+    wide: true,
     body: [
-      copyField(k.snippet, true),
+      installOptions(k),
       more(
         'Does the website have a cookie banner?',
         h('p', { class: 'muted small' }, 'Tell the script when the visitor agrees or declines, so nothing is stored or sent without consent:'),
@@ -605,6 +606,13 @@ const MAPPING_FIELDS: Array<{ key: keyof ZohoMapping; label: string; hint: strin
   { key: 'channel', label: 'Sales channel field', hint: 'Tells in-store sales from online ones.', required: true },
   { key: 'storeChannelValues', label: 'Values that mean “in store”', hint: 'Comma separated', list: true, required: true },
   { key: 'email', label: 'Email field', hint: 'Optional but improves matching.' },
+  { key: 'firstName', label: 'First name field', hint: 'Optional. Name, place and customer ID help the ad platforms recognise the buyer.' },
+  { key: 'lastName', label: 'Last name field', hint: 'Optional.' },
+  { key: 'city', label: 'City field', hint: 'Optional.' },
+  { key: 'state', label: 'State field', hint: 'Optional. Names such as Maharashtra are sent as the code (MH).' },
+  { key: 'postalCode', label: 'Postal code field', hint: 'Optional.' },
+  { key: 'country', label: 'Country field', hint: 'Optional but needed for Google to use the address. Not guessed from the phone number.' },
+  { key: 'customerId', label: 'Customer ID field', hint: 'Optional. The contact’s own ID in Zoho, for example Contact_Name.id.' },
   { key: 'stage', label: 'Stage field', hint: 'Leave empty to treat every record as won.' },
   { key: 'wonStages', label: 'Won stage values', hint: 'Comma separated, for example Closed Won', list: true },
   { key: 'fallbackOccurredAt', label: 'Sale date fallback', hint: 'Used when the main date is empty.' },
@@ -1056,50 +1064,128 @@ async function showPreview(tenantId: string, saleKey: string, destination: strin
 }
 
 // ---- import ---------------------------------------------------------------------------------------------
+interface ImportSummary {
+  rows: number;
+  newSales: number;
+  alreadyImported: number;
+  withContact: number;
+  withoutContact: number;
+  consent: { yes: number; no: number; notStated: number };
+  withName: number;
+  withPostalCode: number;
+  value: Record<string, number>;
+  firstDate: string | null;
+  lastDate: string | null;
+}
+
+/** What a clean check found, in plain words, as the confirmation shown before anything is imported. */
+function importSummaryView(sm: ImportSummary, optIn: boolean): HTMLElement {
+  const money = Object.entries(sm.value).map(([cur, n]) => `${cur} ${n.toLocaleString('en-IN')}`).join(' + ');
+  const line = (text: string, warn = false) => h('li', { class: warn ? 'warn-line' : '' }, text);
+  return h(
+    'div',
+    { class: 'note', role: 'status' },
+    h('div', null, h('strong', null, sm.newSales === 0 ? 'Nothing new to import.' : `Ready to import ${plural(sm.newSales, 'sale', 'sales')}.`)),
+    h(
+      'ul',
+      null,
+      sm.alreadyImported ? line(`${plural(sm.alreadyImported, 'row is', 'rows are')} already imported and will be skipped.`) : null,
+      money ? line(`Total value of the new sales: ${money}`) : null,
+      sm.firstDate ? line(sm.firstDate === sm.lastDate ? `Sale date: ${sm.firstDate}` : `Sale dates: ${sm.firstDate} to ${sm.lastDate}`) : null,
+      sm.newSales === 0 ? null : sm.withoutContact ? line(`${plural(sm.withoutContact, 'row has', 'rows have')} no phone or email. They are recorded but cannot be matched, so they will not be sent.`, true) : line('Every row has a phone or an email.'),
+      sm.newSales === 0 ? null : line(`Consent: ${sm.consent.yes} yes, ${sm.consent.no} no, ${sm.consent.notStated} not stated.${sm.consent.notStated && optIn ? ' Without a yes, a sale is only sent if the customer agreed on the website.' : ''}${sm.consent.no ? ' Rows marked no are never sent.' : ''}`, Boolean(sm.consent.notStated && optIn)),
+      sm.withName || sm.withPostalCode ? line(`Better matching: ${plural(sm.withName, 'row has', 'rows have')} a full name, ${plural(sm.withPostalCode, 'row has', 'rows have')} a postal code.`) : null,
+    ),
+  );
+}
+
 function importDialog(c: Ctx) {
   const id = c.view.tenant.tenantId;
   const text = h('textarea', { class: 'mono', rows: 7, spellcheck: false, placeholder: c.meta.importColumns.join(',') });
   const file = h('input', { type: 'file', accept: '.csv,text/csv' });
   const results = h('div', { 'aria-live': 'polite' });
+
+  type Check = {
+    dryRun: boolean;
+    counts: Record<string, number>;
+    results: Array<{ line: number; status: string; error?: string }>;
+    summary?: ImportSummary;
+    checkToken?: string;
+  };
+  // The import is only offered for a file that has just passed the check. Any edit to the file undoes that.
+  let passed: { csv: string; token: string; summary: ImportSummary } | null = null;
+  let submit: HTMLButtonElement | null = null;
+  const label = () => {
+    if (submit) submit.textContent = !passed ? 'Check file' : passed.summary.newSales === 0 ? 'Close' : `Import ${plural(passed.summary.newSales, 'sale', 'sales')}`;
+  };
+  const reset = () => {
+    passed = null;
+    results.replaceChildren();
+    label();
+  };
+  text.addEventListener('input', reset);
   file.addEventListener('change', async () => {
     const f = file.files?.[0];
     if (f) text.value = await f.text();
+    reset();
   });
 
-  type Res = { dryRun: boolean; counts: Record<string, number>; results: Array<{ line: number; status: string; error?: string }> };
-  const run = async (dryRun: boolean) => {
-    const r = await api<Res>('POST', `/tenants/${id}/import`, { csv: text.value, dryRun });
+  const check = async () => {
+    const csv = text.value;
+    const r = await api<Check>('POST', `/tenants/${id}/import`, { csv, dryRun: true });
     const bad = r.results.filter((x) => x.status === 'invalid' || x.status === 'error');
-    results.replaceChildren(
-      h(
-        'div',
-        { class: bad.length ? 'alert' : 'note' },
-        h('div', null, r.dryRun ? `${plural(r.results.length - bad.length, 'row looks', 'rows look')} fine, ${plural(bad.length, 'row has', 'rows have')} problems.` : `Recorded ${r.counts.recorded}, already imported ${r.counts.duplicate}, rejected ${r.counts.invalid}, failed ${r.counts.error}.`),
-        bad.length ? h('ul', null, ...bad.map((x) => h('li', null, `Line ${x.line}: ${x.error ?? x.status}`))) : null,
-      ),
-    );
-    return { r, bad };
+    if (bad.length || !r.checkToken || !r.summary) {
+      passed = null;
+      results.replaceChildren(
+        h('div', { class: 'alert' }, h('div', null, `${plural(bad.length, 'row has', 'rows have')} problems. Fix them and check again; nothing can be imported until the file passes.`), h('ul', null, ...bad.slice(0, 20).map((x) => h('li', null, `Line ${x.line}: ${x.error ?? x.status}`))), bad.length > 20 ? h('div', { class: 'small' }, `…and ${bad.length - 20} more.`) : null),
+      );
+    } else {
+      passed = { csv, token: r.checkToken, summary: r.summary };
+      results.replaceChildren(importSummaryView(r.summary, c.view.tenant.consentPolicy.mode === 'opt_in'));
+    }
+    label();
   };
-  const check = h('button', { type: 'button', class: 'link' }, 'Check without importing');
-  check.addEventListener('click', runAction(check, async () => void (await run(true))));
-  formDialog({
+
+  const dialog = formDialog({
     title: 'Import sales',
-    lead: 'For sales that are missing from the CRM. Only import sales that are not already coming from it, or they will be counted twice.',
+    lead: 'For sales that are missing from the CRM. Only import sales that are not already coming from it, or they will be counted twice. The file is checked first; nothing is imported until it passes.',
     wide: true,
     body: [
       h('div', { class: 'row' }, file, h('button', { type: 'button', class: 'link', onclick: () => download('sales-template.csv', c.meta.importTemplate) }, 'Download a template')),
       field('imp-text', 'Or paste the file contents', text, 'Needs eventId, channel (store, online, whatsapp or web_lead) and occurredAt (a date like 2026-10-07).').wrap,
       results,
     ],
-    extra: check,
-    submitLabel: 'Import',
+    submitLabel: 'Check file',
     onSubmit: async () => {
-      const { r, bad } = await run(false);
-      if (bad.length) return false; // stay open so the problems can be read
-      toast(`Imported ${r.counts.recorded} ${r.counts.recorded === 1 ? 'sale' : 'sales'}.`);
-      void c.reload();
+      // Always against the file as it is now: if it changed since the check, check again instead of importing.
+      if (!passed || passed.csv !== text.value) {
+        await check();
+        return false;
+      }
+      if (passed.summary.newSales === 0) return; // nothing to add: just close
+      try {
+        const r = await api<Check>('POST', `/tenants/${id}/import`, { csv: passed.csv, checkToken: passed.token });
+        const { recorded = 0, error = 0, invalid = 0 } = r.counts;
+        if (error > 0 || invalid > 0) {
+          results.replaceChildren(h('div', { class: 'alert' }, `Recorded ${recorded}, but ${plural(error + invalid, 'row failed', 'rows failed')}. Check the Sales tab.`));
+          passed = null;
+          label();
+          void c.reload();
+          return false;
+        }
+        toast(`Imported ${plural(recorded, 'sale', 'sales')}.`);
+        void c.reload();
+      } catch (e) {
+        if (e instanceof ApiError && (e.code === 'check_outdated' || e.code === 'check_required')) {
+          reset(); // the check expired: ask for a new one
+          toast('The check has expired. Check the file again.', true);
+          return false;
+        }
+        throw e;
+      }
     },
   });
+  submit = dialog.querySelector<HTMLButtonElement>('button[type=submit]');
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;

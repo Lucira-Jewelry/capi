@@ -124,6 +124,24 @@ describe('identify', () => {
     expect(body.touches[0]).toMatchObject({ gclid: 'G1', fbclid: 'F1', clickedAt: T0 });
   });
 
+  it('sends the Meta pixel\'s browser ID (_fbp) when the page has one', async () => {
+    document.cookie = '_fbp=fb.1.1700000000000.123456;path=/';
+    const { tracker, fetchImpl } = make();
+    await tracker.identify({ phone: '9876543210' });
+    const body = JSON.parse((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body.fbp).toBe('fb.1.1700000000000.123456');
+    document.cookie = '_fbp=;path=/;max-age=0';
+  });
+
+  it('does not invent a browser ID when the page has none, or send a malformed one', async () => {
+    document.cookie = '_fbp=junk;path=/';
+    const { tracker, fetchImpl } = make();
+    await tracker.identify({ phone: '9876543210' });
+    const body = JSON.parse((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body.fbp).toBeUndefined();
+    document.cookie = '_fbp=;path=/;max-age=0';
+  });
+
   it('does not send without consent (opt_in, unknown)', async () => {
     visit('?gclid=G1');
     const { tracker, fetchImpl } = make({ getConsent: () => 'unknown' });

@@ -2,7 +2,7 @@ import { api } from './api';
 import { CHANNEL_LABEL, DEST_LABEL, type Meta, type SendOverview, type Tenant, type TenantView } from './types';
 import { checkGroup, closeDialog, csvToList, field, h, icon, openDialog, runAction, select, statusBadge, textInput, timeEl, toast } from './dom';
 import { formDialog, listRow } from './ui';
-import { copyField, secretBox } from './widgets';
+import { copyField, installOptions, secretBox } from './widgets';
 
 /** The list of brands, with a search box. */
 export function renderBrands(tenants: Tenant[], meta: Meta, onOpen: (id: string) => void, sending?: SendOverview | null): HTMLElement {
@@ -181,8 +181,8 @@ function newBrandDialog(m: Meta, onCreated: (id: string) => void): HTMLDialogEle
         form.replaceChildren(
           h('h2', { id: 'nb-title' }, `${created.tenant.name} is ready`),
           secretBox('Webhook secret (shown once)', created.webhookSecret, 'Send it as the x-webhook-secret header from your CRM. If you lose it, rotate it from the CRM tab.'),
-          h('p', null, 'Add this to the website, on every page:'),
-          copyField(created.siteKeys[0]?.snippet ?? '', true),
+          h('p', null, 'Put the script on the website:'),
+          ...(created.siteKeys[0] ? [installOptions(created.siteKeys[0])] : []),
           h('div', { class: 'row' }, h('button', { class: 'primary', type: 'button', onclick: () => { closeDialog(dialog); onCreated(created.tenant.tenantId); } }, 'Open brand')),
         );
       } catch (err) {

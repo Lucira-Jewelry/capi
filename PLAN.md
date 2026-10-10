@@ -329,3 +329,39 @@ An independent audit (`docs/server-side-conversion-audit.md`, benchmark in `docs
 **Review follow-ups, round 2 (done)**
 - Erasure and privacy requests now cover every linked contact detail: keys come from the contact given, the website profile, and every sale carrying any of them (followed to a fixpoint, refused with nothing changed past 50, which means a shared number). All are suppressed BEFORE anything is cleared, so an email-only purchase after erasing by phone is skipped (reproduced: it used to be pending for both platforms; the test fails on the old behaviour). The operator's "privacy request" uses the same reach; the unauthenticated website opt-out deliberately does not.
 - Pause: a live (uncached) check of the pause and of the brand's status as the very last step before each request, with the delivery returned to the queue untouched if it fails, and one dispatch at a time per instance. The guide now states the real bound: one send per running instance whose last check preceded the pause; the 3-second cache is only for the on-screen label. Not measured on Cloud Run.
+
+## Match quality (round: details that raise the match rate)
+- Sales can now carry first/last name, city, state, postal code, country and the brand's own customer ID (Zoho mapping
+  fields, standard JSON, CSV columns). Hashed with each platform's rules; Google's country and postal code are kept as
+  given (it takes them unhashed). The country is only what the address says (not guessed from the phone number); Google's address needs it. Meta's hashed
+  fields are sent as lists; state names (India, US) become codes (Maharashtra -> mh) before hashing.
+- The tracker sends Meta's browser ID (`_fbp`, set by the brand's Meta pixel) with identify; it is kept on the person and
+  copied to their sales. It is not created by us yet (that comes with web events).
+- Meta gets fn/ln/ct/st/zp/country/external_id/fbp; Google gets an address identifier only when name, country and postal
+  code are all present. "Preview what is sent" lists what each sale is matched on and what is missing.
+- Deliberately NOT done: client IP and user agent. For store and CRM sales they would be the website visit's, not the
+  purchase's, and storing IPs is a privacy decision. They belong with web events, where the live request supplies them.
+- Zoho defaults do not include the new fields: a wrong field name makes the daily sync's query fail, so each brand
+  opts in from the mapping dialog.
+- All field formats are marked VERIFY and must be checked against Meta's and Google's current docs and a real test event.
+
+## Import must be checked first
+- The Import dialog has one button: "Check file", then "Import N sales" once the file has passed. Editing the file or
+  choosing another one takes the import away until it is checked again. The check shows a summary (new vs already
+  imported, value, dates, rows without phone or email, consent, name/postal coverage).
+- The server enforces it too: a real import needs the `checkToken` from a clean check of exactly that file for that brand
+  (HMAC over brand + file hash + time, valid 30 minutes). A file with any problem row gets no token, so nothing in it can
+  be imported until it is fixed.
+- The check is strict: consent must be yes/no (or empty), anything else rejects the row (also in the standard JSON,
+  where it must be true/false); days that do not exist (2026-02-30) are rejected everywhere dates are read; broken
+  quoting and rows with more values than the header are rejected; the confirmation describes only the rows that will
+  be added, never the skipped duplicates.
+
+## Install snippets (Google Tag Manager and direct)
+- The console now gives two labelled options per website: a Google Tag Manager loader (creates the script element and
+  sets `data-key`, `data-endpoint`, and `data-consent-mode` for opt-out brands before adding it) and the plain script
+  tag. Both come from one builder (`packages/server/src/snippets.ts`) using the brand's real key, tracking address and
+  consent mode, with values escaped for HTML attributes and for JavaScript strings inside an HTML script element.
+  The opt-in default is not written out, so consent behaviour is unchanged. Instructions: docs/install-script.md.
+- The reason the plain tag lost its attributes in one brand's Tag Manager is not established; documented as observed.
+- Not changed: the tracker's public API, form detection (automatic login/sign-up capture is a separate task).

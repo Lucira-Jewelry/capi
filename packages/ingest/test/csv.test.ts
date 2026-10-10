@@ -58,8 +58,43 @@ describe('salesFromCsv', () => {
     expect(salesFromCsv(big, '+05:30', 5)).toMatchObject({ error: expect.stringContaining('Too many rows') });
   });
 
-  it('an unrecognised consent word is treated as "not stated"', () => {
+  it('an unrecognised consent word is refused, not read as "not stated"', () => {
     const { rows } = salesFromCsv('eventId,channel,occurredAt,consent\nA1,store,2026-10-07,maybe');
-    expect(rows[0]?.sale && 'consent' in rows[0].sale).toBe(false);
+    expect(rows[0]?.ok).toBe(false);
+  });
+});
+
+describe('a file that looks fine but is not', () => {
+  const head = 'eventId,channel,occurredAt,consent\n';
+
+  it('refuses a consent value it does not recognise, instead of reading it as "not stated"', () => {
+    for (const bad of ['noo', 'maybe', 'nope', '2']) {
+      const { rows } = salesFromCsv(`${head}A1,store,2026-10-07,${bad}`);
+      expect(rows[0]!.ok).toBe(false);
+      expect(rows[0]!.error).toContain('consent must be yes or no');
+    }
+    expect(salesFromCsv(`${head}A1,store,2026-10-07,`).rows[0]!.ok).toBe(true); // empty = not stated
+    expect(salesFromCsv(`${head}A1,store,2026-10-07,Yes`).rows[0]!.sale?.consent).toBe(true);
+    expect(salesFromCsv(`${head}A1,store,2026-10-07,N`).rows[0]!.sale?.consent).toBe(false);
+  });
+
+  it('refuses days that do not exist, dates and timestamps alike', () => {
+    for (const bad of ['2026-02-30', '2026-04-31', '2026-13-01', '2026-02-29', '2026-02-30T10:00:00+05:30']) {
+      expect(salesFromCsv(`${head}A1,store,${bad},yes`).rows[0]!.ok).toBe(false);
+    }
+    expect(salesFromCsv(`${head}A1,store,2028-02-29,yes`).rows[0]!.ok).toBe(true); // a real leap day
+  });
+
+  it('refuses a file whose quotes are broken', () => {
+    expect(salesFromCsv(`${head}A1,"store,2026-10-07,yes`).error).toContain('never closed');
+    expect(salesFromCsv(`${head}A1,st"ore,2026-10-07,yes`).error).toContain('Stray quote');
+    expect(salesFromCsv(`${head}A1,"store"x,2026-10-07,yes`).error).toContain('Text after a closing quote');
+    expect(salesFromCsv(`${head}A1,"store",2026-10-07,yes`).error).toBeUndefined();
+  });
+
+  it('flags a row with more values than the header (an unquoted comma)', () => {
+    const { rows } = salesFromCsv('eventId,channel,occurredAt,store\nA1,store,2026-10-07,Pune, FC Road');
+    expect(rows[0]!.ok).toBe(false);
+    expect(rows[0]!.error).toContain('put values containing commas in quotes');
   });
 });
