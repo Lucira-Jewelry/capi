@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { Channel, CountryCode, Destination, TenantConfig, ZohoMapping } from '@datahash/core';
 import {
   DEFAULT_ZOHO_MAPPING,
@@ -10,8 +10,9 @@ import {
 } from '@datahash/ingest';
 import type { DispatchSummary } from '@datahash/senders';
 import type { EraseResult } from '@datahash/ingest';
+import { installSnippets } from './snippets';
 import { defaultCheckDeps, runTrackingCheck, type CheckDeps } from './tracking-check';
-import type { ConnectionsRepo, SalesRepo, TenantRegistry } from '@datahash/store';
+import { saleKey, type ConnectionsRepo, type SalesRepo, type TenantRegistry } from '@datahash/store';
 
 const SHARED_CONTACT_MESSAGE = 'This phone or email is linked to many other contact details, which usually means a number or address shared by several people. Nothing was changed. Handle it by hand, or use a different detail for the customer.';
 
@@ -116,6 +117,89 @@ function origins(v: unknown): string[] | null {
   return [...new Set(out)];
 }
 
+
+// ---- import check -----------------------------------------------------------------------------------------------
+
+const CHECK_TTL_MS = 30 * 60 * 1000;
+
+/** Proof that this exact file was checked for this brand and came out clean. Signed, so it cannot be made up. */
+function checkTokenFor(adminToken: string, tenantId: string, csv: string, at: number): string {
+  const mac = createHmac('sha256', `import-check:${adminToken}`).update(`${tenantId}|${createHash('sha256').update(csv).digest('hex')}|${at}`).digest('hex');
+  return `${at}.${mac}`;
+}
+
+function checkTokenProblem(adminToken: string, tenantId: string, csv: string, token: unknown, now: number): 'check_required' | 'check_outdated' | null {
+  if (typeof token !== 'string' || !token) return 'check_required';
+  const at = Number(token.split('.')[0]);
+  if (!Number.isFinite(at) || now - at > CHECK_TTL_MS || at > now + 60_000) return 'check_outdated';
+  const expected = Buffer.from(checkTokenFor(adminToken, tenantId, csv, at));
+  const given = Buffer.from(token);
+  return given.length === expected.length && timingSafeEqual(given, expected) ? null : 'check_outdated';
+}
+
+export interface ImportSummary {
+  /** Valid rows in the file. Everything below, except `alreadyImported`, counts only the rows that will be added. */
+  rows: number;
+  /** Not recorded before: these will be added. */
+  newSales: number;
+  /** Already imported earlier: these are skipped, not counted twice. */
+  alreadyImported: number;
+  /** Rows with a phone or an email, which is what the ad platforms match on. */
+  withContact: number;
+  withoutContact: number;
+  consent: { yes: number; no: number; notStated: number };
+  /** Rows that also carry a name, a postal code, or both (better matching). */
+  withName: number;
+  withPostalCode: number;
+  value: Record<string, number>;
+  firstDate: string | null;
+  lastDate: string | null;
+}
+
+async function summariseImport(sales: SalesRepo, rows: Array<{ sale?: IncomingSale }>): Promise<ImportSummary> {
+  const list = rows.flatMap((r) => (r.sale ? [r.sale] : []));
+  const out: ImportSummary = { rows: list.length, newSales: 0, alreadyImported: 0, withContact: 0, withoutContact: 0, consent: { yes: 0, no: 0, notStated: 0 }, withName: 0, withPostalCode: 0, value: {}, firstDate: null, lastDate: null };
+  // Which rows will really be added: not recorded before, and not a repeat of an earlier row in the same file.
+  const fresh: IncomingSale[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < list.length; i += 25) {
+    const chunk = list.slice(i, i + 25);
+    const existing = await Promise.all(chunk.map((sale) => sales.getSale(saleKey(sale.source, sale.eventId))));
+    chunk.forEach((sale, j) => {
+      const key = saleKey(sale.source, sale.eventId);
+      if (existing[j] || seen.has(key)) out.alreadyImported++;
+      else {
+        out.newSales++;
+        fresh.push(sale);
+      }
+      seen.add(key);
+    });
+  }
+  // Everything below describes only the rows that will be added, so the confirmation never overstates the import.
+  let first = Infinity;
+  let last = -Infinity;
+  for (const sale of fresh) {
+    if (sale.phone || sale.email) out.withContact++;
+    else out.withoutContact++;
+    if (sale.consent === true) out.consent.yes++;
+    else if (sale.consent === false) out.consent.no++;
+    else out.consent.notStated++;
+    if (sale.firstName && sale.lastName) out.withName++;
+    if (sale.postalCode) out.withPostalCode++;
+    if (sale.value !== undefined) {
+      const cur = sale.currency ?? 'INR';
+      out.value[cur] = Math.round(((out.value[cur] ?? 0) + sale.value) * 100) / 100;
+    }
+    first = Math.min(first, sale.occurredAt.getTime());
+    last = Math.max(last, sale.occurredAt.getTime());
+  }
+  if (fresh.length) {
+    out.firstDate = new Date(first).toISOString().slice(0, 10);
+    out.lastDate = new Date(last).toISOString().slice(0, 10);
+  }
+  return out;
+}
+
 function subset<T extends string>(v: unknown, allowed: T[]): T[] | null {
   if (!Array.isArray(v) || v.length === 0) return null;
   return v.every((x) => allowed.includes(x as T)) ? ([...new Set(v)] as T[]) : null;
@@ -130,14 +214,14 @@ export function validateZohoMapping(v: unknown): ZohoMapping | string {
   if (!strList(v.storeChannelValues) || (v.storeChannelValues as string[]).length === 0) {
     return 'storeChannelValues needs at least one value';
   }
-  for (const key of ['stage', 'fallbackOccurredAt', 'email', 'store', 'consent', 'currency', 'eventName', 'dateOnlyOffset'] as const) {
+  for (const key of ['stage', 'fallbackOccurredAt', 'email', 'firstName', 'lastName', 'city', 'state', 'postalCode', 'country', 'customerId', 'store', 'consent', 'currency', 'eventName', 'dateOnlyOffset'] as const) {
     if (v[key] !== undefined && !str(v[key])) return `${key} must be text`;
   }
   for (const key of ['wonStages', 'whatsappChannelValues', 'onlineChannelValues', 'consentTrueValues'] as const) {
     if (v[key] !== undefined && !strList(v[key])) return `${key} must be a list of text values`;
   }
   const keep = [
-    'dealId', 'stage', 'wonStages', 'amount', 'occurredAt', 'fallbackOccurredAt', 'dateOnlyOffset', 'phone', 'email', 'store',
+    'dealId', 'stage', 'wonStages', 'amount', 'occurredAt', 'fallbackOccurredAt', 'dateOnlyOffset', 'phone', 'email', 'firstName', 'lastName', 'city', 'state', 'postalCode', 'country', 'customerId', 'store',
     'channel', 'storeChannelValues', 'whatsappChannelValues', 'onlineChannelValues', 'consent', 'consentTrueValues', 'currency', 'eventName',
   ];
   return Object.fromEntries(keep.filter((k) => v[k] !== undefined).map((k) => [k, v[k]])) as unknown as ZohoMapping;
@@ -198,6 +282,11 @@ export function dnsInstructions(trackingHost: string, publicBase: string) {
   };
 }
 
+function snippetsFor(origin: string, key: string, consentMode: 'opt_in' | 'opt_out') {
+  const { script, gtm } = installSnippets({ trackerUrl: `${origin}/tracker.js`, key, endpoint: origin, consentMode });
+  return { snippet: script, gtmSnippet: gtm };
+}
+
 async function tenantView(id: string, deps: AdminDeps) {
   const tenant = await deps.registry.getTenant(id);
   if (!tenant) return null;
@@ -210,8 +299,9 @@ async function tenantView(id: string, deps: AdminDeps) {
       const origin = s.trackingHost ? `${/localhost/.test(s.trackingHost) ? 'http' : 'https'}://${s.trackingHost}` : base;
       return {
         ...s,
-        // Opt-out brands need the browser told so, otherwise the script waits for a "yes" that never comes.
-        snippet: `<script src="${origin}/tracker.js" data-key="${s.key}" data-endpoint="${origin}"${tenant.consentPolicy.mode === 'opt_out' ? ' data-consent-mode="opt_out"' : ''} async></script>`,
+        // Two ways to install it, built from the same settings. Opt-out brands need the browser told so, otherwise the
+        // script waits for a "yes" that never comes.
+        ...snippetsFor(origin, s.key, tenant.consentPolicy.mode),
         // What the brand's DNS needs: this address must point at our collector.
         ...(s.trackingHost ? { dns: dnsInstructions(s.trackingHost, base) } : {}),
       };
@@ -471,6 +561,13 @@ export async function handleAdmin(req: AdminRequest, deps: AdminDeps): Promise<A
       if (parsed.error) return fail(400, 'invalid_csv', parsed.error);
 
       const dryRun = body.dryRun === true;
+      const nowMs = (deps.now ?? (() => new Date()))().getTime();
+      // A real import needs a clean check of exactly this file, made a short while ago.
+      if (!dryRun) {
+        const problem = checkTokenProblem(deps.adminToken, id, body.csv, body.checkToken, nowMs);
+        if (problem === 'check_required') return fail(400, problem, 'Check the file first, then import it.');
+        if (problem) return fail(400, problem, 'The file changed, or was checked too long ago. Check it again before importing.');
+      }
       const results: Array<{ line: number; status: string; error?: string }> = [];
       const counts = { recorded: 0, duplicate: 0, invalid: 0, error: 0 };
       for (const row of parsed.rows) {
@@ -491,6 +588,16 @@ export async function handleAdmin(req: AdminRequest, deps: AdminDeps): Promise<A
           counts.error++;
           results.push({ line: row.line, status: 'error' });
         }
+      }
+      if (dryRun) {
+        const clean = counts.invalid === 0;
+        return ok({
+          dryRun,
+          counts,
+          results,
+          summary: await summariseImport(deps.salesFor(id), parsed.rows),
+          ...(clean ? { checkToken: checkTokenFor(deps.adminToken, id, body.csv, nowMs) } : {}),
+        });
       }
       return ok({ dryRun, counts, results });
     }

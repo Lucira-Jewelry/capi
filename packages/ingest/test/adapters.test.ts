@@ -8,6 +8,7 @@ import {
   parseDate,
   redactRecord,
   zohoFieldsFromMapping,
+  zohoLogView,
 } from '../src';
 
 const deal = (over: Record<string, unknown> = {}) => ({
@@ -143,5 +144,36 @@ describe('mapGenericSale', () => {
     expect(mapGenericSale({ ...ok, occurredAt: '2026-10-07' })).toMatchObject({ ok: false, reason: 'invalid_date' });
     expect(mapGenericSale({ ...ok, value: 'x' })).toMatchObject({ ok: false, reason: 'invalid_amount' });
     expect(mapGenericSale('nope')).toMatchObject({ ok: false, reason: 'invalid_payload' });
+  });
+});
+
+describe('customer details', () => {
+  it('the standard JSON accepts name, place and customer ID', () => {
+    const r = mapGenericSale({ eventId: 'e1', channel: 'store', occurredAt: '2026-10-07T10:00:00+05:30', firstName: 'Priya', lastName: 'Shah', city: 'Pune', state: 'MH', postalCode: '411001', country: 'India', customerId: 'C-9' });
+    expect(r.ok && r.sale).toMatchObject({ firstName: 'Priya', lastName: 'Shah', city: 'Pune', state: 'MH', postalCode: '411001', country: 'India', customerId: 'C-9' });
+  });
+
+  it('Zoho reads them from the mapped fields, and the log view redacts them', () => {
+    const mapping = { ...M, firstName: 'Contact_Name.First_Name', city: 'Contact_Name.Mailing_City', customerId: 'Contact_Name.id' };
+    const record = deal({ Contact_Name: { Mobile: '98765 43210', Email: 'a@b.co', First_Name: 'Priya', Mailing_City: 'Pune', id: '77' } });
+    const r = mapZohoDeal(record, mapping);
+    expect(r.ok && r.sale).toMatchObject({ firstName: 'Priya', city: 'Pune', customerId: '77' });
+    expect(zohoFieldsFromMapping(mapping)).toEqual(expect.arrayContaining(['Contact_Name.First_Name', 'Contact_Name.Mailing_City', 'Contact_Name.id']));
+    expect(zohoLogView(record, mapping)['Contact_Name.First_Name']).toBe('[redacted]');
+  });
+});
+
+describe('the standard JSON is as strict as the file import', () => {
+  const base = { eventId: 'e1', channel: 'store', occurredAt: '2026-10-07T10:00:00+05:30' };
+  it('refuses a consent that is not true or false, and a day that does not exist', () => {
+    expect(mapGenericSale({ ...base, consent: 'noo' })).toMatchObject({ ok: false, reason: 'invalid_consent' });
+    expect(mapGenericSale({ ...base, consent: 'yes' })).toMatchObject({ ok: false, reason: 'invalid_consent' });
+    expect(mapGenericSale({ ...base, consent: false })).toMatchObject({ ok: true, sale: { consent: false } });
+    expect(mapGenericSale({ ...base })).toMatchObject({ ok: true });
+    expect(mapGenericSale({ ...base, occurredAt: '2026-02-30T10:00:00+05:30' })).toMatchObject({ ok: false, reason: 'invalid_date' });
+  });
+  it('Zoho dates that do not exist are refused too', () => {
+    expect(parseDate('2026-02-30')).toBeNull();
+    expect(parseDate('2026-02-28')).not.toBeNull();
   });
 });

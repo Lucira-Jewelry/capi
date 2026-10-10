@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { importCsv } from './import-helper';
 import { processSale } from '@datahash/ingest';
 import { dispatchDue } from '@datahash/senders';
 import { ConnectionsRepo, createFirestore, SalesRepo, SecretBox, Store, TenantRegistry } from '@datahash/store';
@@ -95,6 +96,12 @@ describe.skipIf(!emulator)('admin API (Firestore emulator)', () => {
     expect(b.webhookSecret.length).toBeGreaterThan(30);
     expect(b.siteKeys[0]?.origins).toEqual(['https://www.brand.com']); // normalised to an origin
     expect(b.siteKeys[0]?.snippet).toBe(`<script src="https://track.example.com/tracker.js" data-key="${b.siteKey}" data-endpoint="https://track.example.com" data-consent-mode="opt_out" async></script>`); // this brand is opt-out
+    // The Tag Manager loader is built from the same settings.
+    const gtm = (b.siteKeys[0] as unknown as { gtmSnippet: string }).gtmSnippet;
+    expect(gtm).toContain(`s.setAttribute('data-key', '${b.siteKey}');`);
+    expect(gtm).toContain("s.setAttribute('data-endpoint', 'https://track.example.com');");
+    expect(gtm).toContain("s.setAttribute('data-consent-mode', 'opt_out');");
+    expect(gtm).toContain("s.src = 'https://track.example.com/tracker.js';");
     expect(b.webhooks.zoho).toBe(`https://track.example.com/webhooks/${b.tenant.tenantId}/zoho`);
 
     const again = await call('GET', `/tenants/${b.tenant.tenantId}`);
@@ -188,16 +195,36 @@ describe.skipIf(!emulator)('admin API (Firestore emulator)', () => {
       `INV-3,store,${today},300,9876543212,no`,
       `INV-4,mars,${today},1,,`,
     ].join('\n');
+    const clean = csv.split('\n').slice(0, 4).join('\n'); // without the bad row
 
-    const dry = (await call('POST', `/tenants/${id}/import`, { csv, dryRun: true })).body as { counts: Record<string, number>; results: Array<{ status: string }> };
+    const dry = (await call('POST', `/tenants/${id}/import`, { csv, dryRun: true })).body as { counts: Record<string, number>; results: Array<{ status: string }>; checkToken?: string };
     expect(dry.counts).toMatchObject({ recorded: 0, invalid: 1 });
     expect(dry.results.map((r) => r.status)).toEqual(['valid', 'valid', 'valid', 'invalid']);
+    expect(dry.checkToken).toBeUndefined(); // a file with problems does not pass the check
     expect(((await call('GET', `/tenants/${id}/sales`)).body as { sales: unknown[] }).sales).toHaveLength(0);
 
-    const real = (await call('POST', `/tenants/${id}/import`, { csv })).body as { counts: Record<string, number> };
-    expect(real.counts).toEqual({ recorded: 3, duplicate: 0, invalid: 1, error: 0 });
-    const again = (await call('POST', `/tenants/${id}/import`, { csv })).body as { counts: Record<string, number> };
-    expect(again.counts).toEqual({ recorded: 0, duplicate: 3, invalid: 1, error: 0 });
+    // No import without a clean check of this very file.
+    expect(await call('POST', `/tenants/${id}/import`, { csv })).toMatchObject({ status: 400, body: { error: 'check_required' } });
+    expect(await call('POST', `/tenants/${id}/import`, { csv, checkToken: 'x' })).toMatchObject({ status: 400 });
+
+    const checked = (await call('POST', `/tenants/${id}/import`, { csv: clean, dryRun: true })).body as { checkToken: string; summary: Record<string, unknown> };
+    expect(checked.summary).toMatchObject({ rows: 3, newSales: 3, alreadyImported: 0, withContact: 3, withoutContact: 0, consent: { yes: 2, no: 1, notStated: 0 }, value: { INR: 85800 } });
+    // A token belongs to the file it was issued for: change one character and it no longer works.
+    expect(await call('POST', `/tenants/${id}/import`, { csv: clean.replace('85000', '85001'), checkToken: checked.checkToken })).toMatchObject({ status: 400, body: { error: 'check_outdated' } });
+    expect(await call('POST', `/tenants/${id}/import`, { csv: clean, checkToken: checked.checkToken.replace(/.$/, (c) => (c === '0' ? '1' : '0')) })).toMatchObject({ status: 400, body: { error: 'check_outdated' } });
+
+    const real = (await call('POST', `/tenants/${id}/import`, { csv: clean, checkToken: checked.checkToken })).body as { counts: Record<string, number> };
+    expect(real.counts).toEqual({ recorded: 3, duplicate: 0, invalid: 0, error: 0 });
+    const again = (await importCsv(call, id, clean)).body as { counts: Record<string, number> };
+    expect(again.counts).toEqual({ recorded: 0, duplicate: 3, invalid: 0, error: 0 });
+    // The next check says these are already in.
+    const second = (await call('POST', `/tenants/${id}/import`, { csv: clean, dryRun: true })).body as { summary: Record<string, unknown> };
+    expect(second.summary).toMatchObject({ newSales: 0, alreadyImported: 3, withContact: 0, consent: { yes: 0, no: 0, notStated: 0 }, value: {}, firstDate: null });
+
+    // A file that is part old, part new describes only the new part: value, dates and counts exclude what is skipped.
+    const more = `${clean}\nINV-9,store,2026-01-05,1000,9876543219,no`;
+    const mixed = (await call('POST', `/tenants/${id}/import`, { csv: more, dryRun: true })).body as { summary: Record<string, unknown> };
+    expect(mixed.summary).toMatchObject({ rows: 4, newSales: 1, alreadyImported: 3, withContact: 1, consent: { yes: 0, no: 1, notStated: 0 }, value: { INR: 1000 }, firstDate: '2026-01-05', lastDate: '2026-01-05' });
     expect(await call('POST', `/tenants/${id}/import`, { csv: '   ' })).toMatchObject({ status: 400 });
     expect(await call('POST', `/tenants/${id}/import`, { csv: 'a,b\n1,2' })).toMatchObject({ status: 400, body: { error: 'invalid_csv' } });
 
@@ -235,7 +262,7 @@ describe.skipIf(!emulator)('admin API (Firestore emulator)', () => {
     const a = await newBrand();
     const b = await newBrand();
     const today = new Date().toISOString().slice(0, 10);
-    await call('POST', `/tenants/${a.tenant.tenantId}/import`, { csv: `eventId,channel,occurredAt\nONLY-A,store,${today}` });
+    await importCsv(call, a.tenant.tenantId, `eventId,channel,occurredAt\nONLY-A,store,${today}`);
     const listB = (await call('GET', `/tenants/${b.tenant.tenantId}/sales`)).body as { sales: unknown[] };
     expect(listB.sales).toEqual([]);
   });

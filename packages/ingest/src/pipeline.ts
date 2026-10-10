@@ -1,9 +1,18 @@
 import {
   evaluateDelivery,
   hashEmailForGoogle,
+  hashCountryForMeta,
   hashEmailForMeta,
+  hashExternalId,
+  hashNameForGoogle,
+  hashNameForMeta,
   hashPhoneForGoogle,
   hashPhoneForMeta,
+  hashPlaceForMeta,
+  hashPostalCodeForMeta,
+  hashStateForMeta,
+  normalizeCountry,
+  normalizePostalCode,
   identityKeyForEmail,
   identityKeyForPhone,
   type Destination,
@@ -25,16 +34,35 @@ export interface ProcessResult {
   deliveries: Array<{ destination: Destination; status: 'pending' | 'skipped'; reason?: string }>;
 }
 
-function saleHashes(sale: IncomingSale, country: IngestTenant['defaultCountry']): PersonHashes {
+function saleHashes(sale: IncomingSale, defaultCountry: IngestTenant['defaultCountry']): PersonHashes {
   const h: PersonHashes = {};
-  const mp = hashPhoneForMeta(sale.phone, country);
-  const gp = hashPhoneForGoogle(sale.phone, country);
+  const mp = hashPhoneForMeta(sale.phone, defaultCountry);
+  const gp = hashPhoneForGoogle(sale.phone, defaultCountry);
   const me = hashEmailForMeta(sale.email);
   const ge = hashEmailForGoogle(sale.email);
   if (mp) h.metaPhone = mp;
   if (gp) h.googlePhone = gp;
   if (me) h.metaEmail = me;
   if (ge) h.googleEmail = ge;
+
+  // Name and place. The country is only what the customer's address says: a phone number's country can differ from where
+  // the customer lives, and a wrong country spoils the match.
+  const country = normalizeCountry(sale.country);
+  const set = <K extends keyof PersonHashes>(key: K, value: PersonHashes[K] | null) => {
+    if (value) h[key] = value;
+  };
+  set('metaFirstName', hashNameForMeta(sale.firstName));
+  set('metaLastName', hashNameForMeta(sale.lastName));
+  set('metaCity', hashPlaceForMeta(sale.city));
+  set('metaState', hashStateForMeta(sale.state, country));
+  set('metaZip', hashPostalCodeForMeta(sale.postalCode));
+  set('metaCountry', hashCountryForMeta(country));
+  set('metaExternalId', hashExternalId(sale.customerId));
+  set('googleFirstName', hashNameForGoogle(sale.firstName));
+  set('googleLastName', hashNameForGoogle(sale.lastName, 'family'));
+  // Google takes an address's country and postal code as they are (not hashed).
+  set('googleRegion', country);
+  set('googlePostal', normalizePostalCode(sale.postalCode));
   return h;
 }
 

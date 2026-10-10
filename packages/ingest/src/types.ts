@@ -13,6 +13,16 @@ export interface IncomingSale {
   storeName?: string;
   phone?: string;
   email?: string;
+  /** Optional customer details. Each one the source can give raises the match rate; all are hashed before storing. */
+  firstName?: string;
+  lastName?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  /** The address country: a code (IN) or English name (India). Not guessed from the phone number. */
+  country?: string;
+  /** The brand's own ID for this customer (the CRM contact ID). */
+  customerId?: string;
   /** Consent captured by the source (e.g. a CRM field). undefined = the source did not say. */
   consent?: boolean;
 }
@@ -23,6 +33,7 @@ export type AdapterRejection =
   | 'missing_deal_id'
   | 'invalid_amount'
   | 'invalid_date'
+  | 'invalid_consent'
   | 'unknown_channel';
 
 export type AdapterResult =

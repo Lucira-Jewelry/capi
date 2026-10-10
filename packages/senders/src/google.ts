@@ -82,7 +82,13 @@ export interface DataManagerEvent {
   conversionValue?: number;
   currency?: string;
   adIdentifiers?: { gclid?: string; gbraid?: string; wbraid?: string };
-  userData?: { userIdentifiers: Array<{ emailAddress: string } | { phoneNumber: string }> };
+  userData?: {
+    userIdentifiers: Array<
+      | { emailAddress: string }
+      | { phoneNumber: string }
+      | { address: { givenName: string; familyName: string; regionCode: string; postalCode: string } }
+    >;
+  };
 }
 
 export interface IngestRequest {
@@ -115,6 +121,11 @@ export function buildGoogleEvent({ sale, touch }: SendContext): DataManagerEvent
     const ids: NonNullable<DataManagerEvent['userData']>['userIdentifiers'] = [];
     if (sale.hashes.googleEmail) ids.push({ emailAddress: sale.hashes.googleEmail });
     if (sale.hashes.googlePhone) ids.push({ phoneNumber: sale.hashes.googlePhone });
+    // An address only counts with all four parts. The names are hashed; the country and postal code are not. VERIFY.
+    const h = sale.hashes;
+    if (h.googleFirstName && h.googleLastName && h.googleRegion && h.googlePostal) {
+      ids.push({ address: { givenName: h.googleFirstName, familyName: h.googleLastName, regionCode: h.googleRegion, postalCode: h.googlePostal } });
+    }
     if (ids.length) event.userData = { userIdentifiers: ids };
   }
 

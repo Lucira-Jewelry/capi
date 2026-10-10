@@ -1,6 +1,9 @@
 import type { Channel } from '@datahash/core';
 import type { AdapterResult, IncomingSale } from '../types';
-import { asString, parseAmount } from '../util';
+import { asString, hasRealCalendarDay, parseAmount } from '../util';
+
+/** Optional customer details a sender may post, besides phone and email. */
+export const DETAIL_KEYS = ['firstName', 'lastName', 'city', 'state', 'postalCode', 'country', 'customerId'] as const;
 
 const CHANNELS: Channel[] = ['online', 'store', 'whatsapp', 'web_lead'];
 
@@ -12,13 +15,13 @@ export function genericLogView(record: unknown): Record<string, unknown> {
   for (const key of ['eventId', 'eventName', 'channel', 'occurredAt', 'value', 'currency', 'store', 'consent']) {
     if (r[key] !== undefined) out[key] = r[key];
   }
-  for (const key of ['phone', 'email']) if (r[key]) out[key] = '[redacted]';
+  for (const key of ['phone', 'email', ...DETAIL_KEYS]) if (r[key]) out[key] = '[redacted]';
   return out;
 }
 
 /**
  * Standard JSON any system can post:
- * { eventId, channel, occurredAt (ISO with time), value?, currency?, eventName?, phone?, email?, store?, consent? }
+ * { eventId, channel, occurredAt (ISO with time), value?, currency?, eventName?, phone?, email?, store?, consent?, firstName?, lastName?, city?, state?, postalCode?, country?, customerId? }
  */
 export function mapGenericSale(record: unknown): AdapterResult {
   if (!record || typeof record !== 'object') return { ok: false, reason: 'invalid_payload' };
@@ -31,7 +34,7 @@ export function mapGenericSale(record: unknown): AdapterResult {
   if (!channel || !CHANNELS.includes(channel)) return { ok: false, reason: 'unknown_channel', detail: channel };
 
   const at = asString(r.occurredAt);
-  const occurredAt = at && /T/.test(at) ? new Date(at) : null;
+  const occurredAt = at && /T/.test(at) && hasRealCalendarDay(at) ? new Date(at) : null;
   if (!occurredAt || Number.isNaN(occurredAt.getTime())) return { ok: false, reason: 'invalid_date' };
 
   const sale: IncomingSale = {
@@ -54,7 +57,16 @@ export function mapGenericSale(record: unknown): AdapterResult {
   if (phone) sale.phone = phone;
   const email = asString(r.email);
   if (email) sale.email = email;
-  if (typeof r.consent === 'boolean') sale.consent = r.consent;
+  for (const key of DETAIL_KEYS) {
+    const v = asString(r[key]);
+    if (v) sale[key] = v;
+  }
+  // Consent is a yes or a no. Anything else is refused: guessing "not stated" could let a sale go out under an
+  // opt-out policy for a customer who said no.
+  if (r.consent !== undefined && r.consent !== null && r.consent !== '') {
+    if (typeof r.consent !== 'boolean') return { ok: false, reason: 'invalid_consent', detail: String(r.consent).slice(0, 40) };
+    sale.consent = r.consent;
+  }
 
   return { ok: true, sale };
 }

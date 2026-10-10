@@ -21,7 +21,20 @@ export interface MetaEvent {
   event_id: string;
   action_source: string;
   messaging_channel?: string;
-  user_data: { ph?: string[]; em?: string[]; fbc?: string; ctwa_clid?: string };
+  user_data: {
+    ph?: string[];
+    em?: string[];
+    fn?: string[];
+    ln?: string[];
+    ct?: string[];
+    st?: string[];
+    zp?: string[];
+    country?: string[];
+    external_id?: string[];
+    fbc?: string;
+    fbp?: string;
+    ctwa_clid?: string;
+  };
   custom_data?: { value: number; currency: string };
 }
 
@@ -29,10 +42,21 @@ export function buildMetaEvent({ sale, touch }: SendContext): MetaEvent | null {
   const user_data: MetaEvent['user_data'] = {};
   if (sale.hashes.metaPhone) user_data.ph = [sale.hashes.metaPhone];
   if (sale.hashes.metaEmail) user_data.em = [sale.hashes.metaEmail];
+  // Customer details that raise the match rate. Lists, like the Business SDK sends them; fbp is a plain string.
+  const h = sale.hashes;
+  if (h.metaFirstName) user_data.fn = [h.metaFirstName];
+  if (h.metaLastName) user_data.ln = [h.metaLastName];
+  if (h.metaCity) user_data.ct = [h.metaCity];
+  if (h.metaState) user_data.st = [h.metaState];
+  if (h.metaZip) user_data.zp = [h.metaZip];
+  if (h.metaCountry) user_data.country = [h.metaCountry];
+  if (h.metaExternalId) user_data.external_id = [h.metaExternalId];
+  if (h.fbp) user_data.fbp = h.fbp;
   if (touch?.fbc) user_data.fbc = touch.fbc;
   else if (touch?.fbclid) user_data.fbc = buildFbc(touch.fbclid, touch.clickedAt.getTime());
   if (touch?.ctwaClid) user_data.ctwa_clid = touch.ctwaClid;
-  if (Object.keys(user_data).length === 0) return null; // Meta needs something to match on
+  // Meta needs a real identifier. Name, place and the browser ID only help a match; they are not one on their own.
+  if (!user_data.ph && !user_data.em && !user_data.fbc && !user_data.ctwa_clid) return null;
 
   const event: MetaEvent = {
     event_name: sale.eventName,

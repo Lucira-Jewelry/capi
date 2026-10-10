@@ -8,6 +8,13 @@ export interface ZohoMapping {
   dateOnlyOffset?: string;
   phone: string;
   email?: string;
+  firstName?: string;
+  lastName?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+  customerId?: string;
   store?: string;
   channel: string;
   storeChannelValues: string[];
@@ -50,7 +57,10 @@ export interface SiteKey {
   key: string;
   origins: string[];
   label?: string;
+  /** The plain script tag, for a site whose pages the brand edits. */
   snippet: string;
+  /** The loader for a Google Tag Manager Custom HTML tag. */
+  gtmSnippet?: string;
   /** The brand's own tracking address and the DNS record that points it at us. */
   trackingHost?: string;
   dns?: { type: string; name: string; short: string; target: string; local: boolean; ready: boolean };

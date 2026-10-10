@@ -551,3 +551,8 @@ button.small { padding: 5px 10px; font-size: 13px; }
 
 button.chip-link { cursor: pointer; font: inherit; font-size: 12px; font-weight: 550; }
 button.chip-link:hover { filter: brightness(0.96); transform: translateY(-1px); }
+
+/* Import: the confirmation list after a clean check */
+.note ul { margin: 8px 0 0; padding-left: 18px; }
+.note li + li { margin-top: 4px; }
+.note li.warn-line { color: var(--warn, #b45309); }

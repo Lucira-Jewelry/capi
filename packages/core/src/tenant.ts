@@ -17,6 +17,15 @@ export interface ZohoMapping {
   dateOnlyOffset?: string;
   phone: string;
   email?: string;
+  /** Optional customer details (same style of path as `phone`). Each one raises the match rate. */
+  firstName?: string;
+  lastName?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+  /** The contact's own ID in Zoho, sent to the platforms as a hashed customer ID. */
+  customerId?: string;
   store?: string;
   channel: string;
   storeChannelValues: string[];

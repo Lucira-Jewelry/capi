@@ -1,11 +1,27 @@
 import type { ConsentState } from '@datahash/core';
 
-/** What we keep per person. Only hashes and internal keys: never the plain phone or email. */
+/** What we keep per person. Hashes and internal keys: never the plain phone, email or name (see the fields marked "as given"). */
 export interface PersonHashes {
   metaPhone?: string;
   googlePhone?: string;
   metaEmail?: string;
   googleEmail?: string;
+  // Extra details that raise the match rate. All hashed except the ones marked "as given".
+  metaFirstName?: string;
+  metaLastName?: string;
+  metaCity?: string;
+  metaState?: string;
+  metaZip?: string;
+  metaCountry?: string;
+  /** The brand's own customer ID, hashed. */
+  metaExternalId?: string;
+  googleFirstName?: string;
+  googleLastName?: string;
+  /** As given: Google takes the country code and postal code of an address unhashed. */
+  googleRegion?: string;
+  googlePostal?: string;
+  /** As given: Meta's browser ID cookie (_fbp), seen on the website. */
+  fbp?: string;
 }
 
 export interface StoredConsent extends ConsentState {
@@ -45,6 +61,8 @@ export interface IdentifyInput {
   email?: string | null;
   defaultCountry?: 'IN' | 'US' | 'GB' | 'AE' | 'SG';
   consent?: { ads: boolean; source?: string; textVersion?: string };
+  /** Meta's browser ID cookie from the visitor's browser. */
+  fbp?: string | null;
   touches?: IncomingTouch[];
   now?: Date;
 }

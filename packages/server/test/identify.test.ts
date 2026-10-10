@@ -49,6 +49,15 @@ describe('handleIdentify', () => {
     expect(input.touches?.[0]?.utm).not.toHaveProperty('evil');
   });
 
+  it('passes Meta\'s browser ID on, and ignores one that is malformed', async () => {
+    const { identify, deps } = setup();
+    await handleIdentify({ body: { ...good, fbp: 'fb.1.1700000000000.123456' }, origin }, deps);
+    expect(identify.mock.calls[0]![0].fbp).toBe('fb.1.1700000000000.123456');
+    const bad = await handleIdentify({ body: { ...good, fbp: '<script>' }, origin }, deps);
+    expect(bad.status).toBe(200);
+    expect(identify.mock.calls[1]![0].fbp).toBeUndefined();
+  });
+
   it('rejects unknown keys, bad JSON and disallowed origins', async () => {
     const { deps } = setup();
     expect((await handleIdentify({ body: { ...good, key: 'nope' }, origin }, deps)).status).toBe(401);

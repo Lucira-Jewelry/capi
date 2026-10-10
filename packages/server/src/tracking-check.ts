@@ -438,7 +438,7 @@ export async function runTrackingCheck(args: {
       ].filter(Boolean);
       add({
         id: 'tag', label: 'Script tag on the website', status: 'warn', detail: parts.join(' '),
-        fix: 'Paste the script tag into the site\'s pages (before </head>). If it is loaded through Google Tag Manager or a similar tool, this check cannot see it: open the site and check that the browser loads tracker.js from the tracking address.',
+        fix: 'Paste the script tag into the site\'s pages (before </head>). If it is loaded through Google Tag Manager or a similar tool, this check cannot see it: open the site and, in the browser console, check that typeof window.datahash is "object" (and that the browser loaded tracker.js from the tracking address).',
       });
     }
   }

@@ -1,3 +1,4 @@
+import { normalizeFbp } from '@datahash/core';
 import type { IdentifyInput, IdentifyResult } from '@datahash/store';
 import { cookieName, mergeClicks, openTouches, parseCookies, clearCookieHeader } from './first-party';
 
@@ -153,6 +154,8 @@ export async function handleIdentify(
   if (email) identifyInput.email = email as string;
   identifyInput.defaultCountry = tenant.defaultCountry;
   if (adsConsent !== undefined) identifyInput.consent = { ads: adsConsent, source: 'tracker' };
+  // Meta's browser ID: a malformed value is ignored rather than failing the whole call.
+  if (typeof body.fbp === 'string' && normalizeFbp(body.fbp)) identifyInput.fbp = body.fbp.trim();
 
   const result = await deps.storeFor(tenant).identify(identifyInput);
   if (result.status === 'rejected') return { status: 422, body: { error: result.reason } };
