@@ -28,6 +28,8 @@ export interface GoogleAdsSettings {
 export type ConnectionSettings = { meta: MetaSettings; google_ads: GoogleAdsSettings };
 
 export interface ConnectionStatus {
+  /** Sending to this platform is switched on for the brand. Off holds sales in the queue; it never discards them. */
+  enabled: boolean;
   status: 'active' | 'error';
   lastError?: string;
   updatedAt: Date;
@@ -78,20 +80,31 @@ export class ConnectionsRepo {
     const clean = normalizeSettings(kind, settings);
     const needsSecret = !(kind === 'google_ads' && (clean as GoogleAdsSettings).authMethod === 'service_account');
     if (needsSecret && !secret?.trim()) throw new Error('secret_required');
+    // Saving new settings must not quietly switch a platform back on.
+    const prior = await this.col.doc(kind).get();
     await this.col.doc(kind).set({
       kind,
       ...clean,
       secret: needsSecret ? this.box.seal(secret!.trim()) : null,
       status: 'active',
+      enabled: prior.exists ? prior.data()!.enabled !== false : true,
       updatedAt: now,
     });
+  }
+
+  /** Turn sending to one platform on or off for this brand. False when the platform is not connected. */
+  async setEnabled(kind: ConnectionKind, enabled: boolean, now = new Date()): Promise<boolean> {
+    const ref = this.col.doc(kind);
+    if (!(await ref.get()).exists) return false;
+    await ref.update({ enabled, updatedAt: now });
+    return true;
   }
 
   /** Server-side use only (senders): settings plus the decrypted secret. */
   async getWithSecret<K extends ConnectionKind>(kind: K): Promise<{ settings: ConnectionSettings[K]; secret: string } | null> {
     const snap = await this.col.doc(kind).get();
     if (!snap.exists) return null;
-    const { kind: _k, secret, status: _s, lastError: _e, updatedAt: _u, ...settings } = snap.data()!;
+    const { kind: _k, secret, status: _s, lastError: _e, updatedAt: _u, enabled: _en, ...settings } = snap.data()!;
     // No secret is stored for a service-account connection: callers get an empty string and must check authMethod.
     return { settings: settings as ConnectionSettings[K], secret: secret ? this.box.open(secret as string) : '' };
   }
@@ -120,6 +133,7 @@ export class ConnectionsRepo {
     const { secret, updatedAt, lastError, ...rest } = d;
     return {
       ...rest,
+      enabled: rest.enabled !== false,
       secretSet: Boolean(secret),
       ...(lastError ? { lastError } : {}),
       updatedAt: updatedAt.toDate(),

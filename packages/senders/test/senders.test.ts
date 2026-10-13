@@ -74,7 +74,7 @@ describe('sendMeta', () => {
   it('posts to the dataset with the token and test code, and reports success', async () => {
     const fetchImpl = vi.fn(async () => json({ events_received: 1, fbtrace_id: 'TRACE1' }));
     const res = await sendMeta(ctx(), { ...meta, settings: { datasetId: '999', testEventCode: 'TEST1' } }, { fetchImpl: fetchImpl as never, apiVersion: 'v99.0' });
-    expect(res).toEqual({ outcome: 'sent', response: 'events_received=1 trace=TRACE1' });
+    expect(res).toEqual({ outcome: 'sent', response: 'events_received=1 trace=TRACE1 dataset_id=999 test_event_code=TEST1' });
 
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://graph.facebook.com/v99.0/999/events?access_token=TOKEN');
@@ -82,6 +82,14 @@ describe('sendMeta', () => {
     expect(body.test_event_code).toBe('TEST1');
     expect(body.data).toHaveLength(1);
     expect(body.data[0].event_id).toBe('deal-1');
+  });
+
+  it('records explicitly when the actual request has no test code', async () => {
+    const fetchImpl = vi.fn(async () => json({ events_received: 1 }));
+    const res = await sendMeta(ctx(), { ...meta, settings: { datasetId: '999' } }, { fetchImpl: fetchImpl as never });
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).not.toHaveProperty('test_event_code');
+    expect(res).toEqual({ outcome: 'sent', response: 'events_received=1 dataset_id=999 test_event_code=none' });
   });
 
   it('classifies errors: auth -> failed+authError, rate limit/outage -> retry, bad data -> failed', async () => {

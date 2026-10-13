@@ -23,7 +23,7 @@ COPY packages/senders/package.json packages/senders/
 COPY packages/server/package.json packages/server/
 COPY packages/store/package.json packages/store/
 COPY packages/tracker/package.json packages/tracker/
-COPY packages/admin-ui/package.json packages/admin-ui/
+COPY packages/admin-next/package.json packages/admin-next/
 RUN npm ci --omit=dev --workspace=@datahash/server --ignore-scripts && npm cache clean --force
 COPY --from=build /src/dist/release/ ./
 USER node

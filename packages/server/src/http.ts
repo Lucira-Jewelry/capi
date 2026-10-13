@@ -75,6 +75,11 @@ const MIME: Record<string, string> = {
   '.js': 'application/javascript',
   '.css': 'text/css',
   '.svg': 'image/svg+xml',
+  '.txt': 'text/plain; charset=utf-8',
+  '.json': 'application/json',
+  '.ico': 'image/x-icon',
+  '.png': 'image/png',
+  '.woff2': 'font/woff2',
 };
 
 const sameToken = (a: string | undefined, b: string) =>
@@ -185,15 +190,21 @@ export function createHttpServer(options: ServerOptions): Server {
         return res.end(JSON.stringify(result.body));
       }
       if (req.method === 'GET' && (url === '/admin' || url?.startsWith('/admin/')) && options.adminUiDir) {
-        const rel = url === '/admin' || url === '/admin/' ? 'index.html' : normalize(url!.slice('/admin/'.length));
+        let rel = url === '/admin' || url === '/admin/' ? 'index.html' : normalize(url!.slice('/admin/'.length));
         if (rel.startsWith('..')) return send(res, 400, { error: 'bad_path' });
-        try {
-          const file = await readFile(join(options.adminUiDir, rel));
-          res.writeHead(200, { 'content-type': MIME[extname(rel)] ?? 'application/octet-stream', 'cache-control': 'no-cache' });
-          return res.end(file);
-        } catch {
-          return send(res, 404, { error: 'not_found' });
+        // A folder address (the console's pages, like /admin/brand/) serves that folder's index.html.
+        if (rel.endsWith('/')) rel += 'index.html';
+        const candidates = extname(rel) ? [rel] : [rel, join(rel, 'index.html')];
+        for (const candidate of candidates) {
+          try {
+            const file = await readFile(join(options.adminUiDir, candidate));
+            res.writeHead(200, { 'content-type': MIME[extname(candidate)] ?? 'application/octet-stream', 'cache-control': 'no-cache' });
+            return res.end(file);
+          } catch {
+            /* try the next candidate */
+          }
         }
+        return send(res, 404, { error: 'not_found' });
       }
       if (req.method === 'POST' && url === '/internal/dispatch' && options.internal) {
         const who = `internal:${clientIp(req, options.trustedProxyHops)}`;

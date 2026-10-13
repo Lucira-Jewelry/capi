@@ -184,6 +184,18 @@ describe.skipIf(!emulator)('admin API (Firestore emulator)', () => {
     expect(await new ConnectionsRepo(db, box, id).get('meta')).toBeNull();
   });
 
+  it('switches one platform off and on, and refuses for a platform that is not connected', async () => {
+    const b = await newBrand();
+    const id = b.tenant.tenantId;
+    expect(await call('POST', `/tenants/${id}/connections/meta/enabled`, { enabled: false })).toMatchObject({ status: 404, body: { error: 'not_connected' } });
+
+    await call('PUT', `/tenants/${id}/connections/meta`, { datasetId: '999', accessToken: 'tok' });
+    expect(await call('POST', `/tenants/${id}/connections/meta/enabled`, {})).toMatchObject({ status: 400, body: { error: 'enabled_required' } });
+    expect(await call('POST', `/tenants/${id}/connections/meta/enabled`, { enabled: false })).toMatchObject({ status: 200, body: { kind: 'meta', enabled: false } });
+    expect((await call('GET', `/tenants/${id}`)).body).toMatchObject({ connections: [{ kind: 'meta', enabled: false }] });
+    expect(await call('POST', `/tenants/${id}/connections/meta/enabled`, { enabled: true })).toMatchObject({ body: { enabled: true } });
+  });
+
   it('imports a CSV (dry run first), is idempotent, then sends and shows sales, stats and resend', async () => {
     const b = await newBrand({ destinations: ['meta'] });
     const id = b.tenant.tenantId;

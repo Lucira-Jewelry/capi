@@ -36,6 +36,23 @@ describe.skipIf(!emulator)('ConnectionsRepo (Firestore emulator)', () => {
     });
   });
 
+  it('a platform can be switched off and on; saving new settings keeps the switch where it was', async () => {
+    const r = repo();
+    expect(await r.setEnabled('meta', false)).toBe(false); // not connected: nothing to switch
+    await r.set('meta', { datasetId: '111' }, 'tok', NOW);
+    expect(await r.get('meta')).toMatchObject({ enabled: true });
+
+    expect(await r.setEnabled('meta', false, at(1))).toBe(true);
+    expect(await r.get('meta')).toMatchObject({ enabled: false });
+    await r.set('meta', { datasetId: '222' }, 'tok', at(2)); // an edit must not quietly turn it back on
+    expect(await r.get('meta')).toMatchObject({ datasetId: '222', enabled: false });
+    // The switch is not a sender setting.
+    expect((await r.getWithSecret('meta'))?.settings).toEqual({ datasetId: '222' });
+
+    await r.setEnabled('meta', true, at(3));
+    expect(await r.get('meta')).toMatchObject({ enabled: true });
+  });
+
   it('normalises Google Ads IDs and validates input', async () => {
     const r = repo();
     await r.set(

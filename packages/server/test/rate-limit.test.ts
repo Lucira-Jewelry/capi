@@ -1,4 +1,7 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { clientIp, createHttpServer, FailureLimiter, type AdminDeps } from '../src';
 
@@ -91,6 +94,10 @@ describe('clientIp', () => {
   });
 });
 
+// A stand-in for the built console: the guard under test only needs a page to serve at /admin/.
+const consoleDir = mkdtempSync(join(tmpdir(), 'console-'));
+writeFileSync(join(consoleDir, 'index.html'), '<!doctype html><title>console</title>');
+
 describe('login guessing over HTTP', () => {
   let server: ReturnType<typeof createHttpServer> | undefined;
   afterEach(() => new Promise((r) => (server ? server.close(r) : r(undefined))));
@@ -102,7 +109,7 @@ describe('login guessing over HTTP', () => {
       admin: { adminToken: 'right-token' } as AdminDeps, // /me is answered before anything else is needed
       internal: { token: 'internal-token', dispatchAll: async () => ({}) },
       limiter,
-      adminUiDir: new URL('../../admin-ui/static', import.meta.url).pathname,
+      adminUiDir: consoleDir,
     });
     await new Promise<void>((r) => server!.listen(0, r));
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

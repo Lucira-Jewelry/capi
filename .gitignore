@@ -8,3 +8,9 @@ firestore-debug.log
 !.env.example
 .DS_Store
 *.zip
+
+# Next.js console build output
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo

@@ -33,8 +33,8 @@ await build({
 });
 
 cpSync(must(resolve(root, 'packages/tracker/dist/tracker.js')), resolve(out, 'assets/tracker.js'));
-cpSync(must(resolve(root, 'packages/admin-ui/dist')), resolve(out, 'assets/admin'), { recursive: true });
-for (const f of ['assets/tracker.js', 'assets/admin/index.html', 'assets/admin/app.js', 'assets/admin/app.css']) {
+cpSync(must(resolve(root, 'packages/admin-next/dist')), resolve(out, 'assets/admin'), { recursive: true });
+for (const f of ['assets/tracker.js', 'assets/admin/index.html']) {
   if (statSync(resolve(out, f)).size === 0) throw new Error(`${f} is empty`);
 }
 console.log(`release written to ${out}`);

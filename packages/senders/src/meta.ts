@@ -110,7 +110,9 @@ export async function sendMeta(
   if (res.ok) {
     if (!json) return { outcome: 'retry', error: 'meta: unreadable response, will check again' };
     if (!json.events_received) return { outcome: 'failed', error: 'meta accepted the request but received 0 events' };
-    return { outcome: 'sent', response: `events_received=${json.events_received}${json.fbtrace_id ? ` trace=${json.fbtrace_id}` : ''}` };
+    // Persist the mode from the body actually submitted, not from a later connection preview.
+    // The delivery response contains no access token or customer identifiers.
+    return { outcome: 'sent', response: `events_received=${json.events_received}${json.fbtrace_id ? ` trace=${json.fbtrace_id}` : ''} dataset_id=${connection.settings.datasetId} test_event_code=${body.test_event_code ?? 'none'}` };
   }
 
   const e = json?.error ?? {};

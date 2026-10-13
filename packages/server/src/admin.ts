@@ -431,6 +431,15 @@ export async function handleAdmin(req: AdminRequest, deps: AdminDeps): Promise<A
       return ok(await tenantView(id, deps));
     }
 
+    const connEnabled = /^\/connections\/(meta|google_ads)\/enabled$/.exec(rest);
+    if (connEnabled && method === 'POST') {
+      if (typeof body.enabled !== 'boolean') return fail(400, 'enabled_required', 'Say whether sending is on (true or false).');
+      const repo = deps.connectionsFor(id);
+      const kind = connEnabled[1] as 'meta' | 'google_ads';
+      if (!(await repo.setEnabled(kind, body.enabled, now))) return fail(404, 'not_connected', 'Connect this platform first.');
+      return ok(await repo.get(kind));
+    }
+
     const conn = /^\/connections\/(meta|google_ads)$/.exec(rest);
     if (conn) {
       const kind = conn[1] as 'meta' | 'google_ads';
@@ -609,6 +618,17 @@ export async function handleAdmin(req: AdminRequest, deps: AdminDeps): Promise<A
     if (message === 'unknown_site_key') return fail(404, 'unknown_site_key');
     if (message === 'invalid_tracking_host') return fail(400, 'invalid_tracking_host', 'Use just the address, for example track.brand.com (no https://, no path). A port is only allowed for local testing (*.localhost).');
     if (message === 'tracking_host_taken') return fail(409, 'tracking_host_taken', 'Another site key already uses that tracking address.');
+    // Log diagnostic metadata without request bodies, credentials, or raw exception messages.
+    // Firestore includes an index-creation URL in missing-index errors; classify it without exposing the URL.
+    const code = e && typeof e === 'object' && 'code' in e ? e.code : undefined;
+    console.error(JSON.stringify({
+      severity: 'ERROR',
+      message: 'Admin request failed',
+      operation: req.path.endsWith('/dispatch') ? 'dispatch' : 'admin',
+      errorCode: typeof code === 'number' ? code : undefined,
+      missingFirestoreIndex: /requires an index|index.*not ready/i.test(message),
+      stackFrames: e instanceof Error ? e.stack?.split('\n').slice(1).filter((line) => /^\s+at /.test(line)).slice(0, 8) : undefined,
+    }));
     return fail(500, 'internal_error');
   }
 }

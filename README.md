@@ -12,7 +12,7 @@ Multi-tenant service that captures ad click IDs on a brand's website, receives s
 | `ingest` | Sources to one standard sale (Zoho, generic JSON, CSV), the pipeline, the Zoho sync |
 | `senders` | Meta and Google senders, retry policy, the dispatcher |
 | `server` | HTTP: `/identify`, `/consent` (withdrawals), `/touch` (first-party cookie), `/webhooks/{brand}/{zoho\|generic}`, `/admin/api`, `/internal/dispatch` |
-| `admin-ui` | The operator console, served at `/admin` |
+| `admin-next` | The operator console (Next.js, built as static files), served at `/admin` |
 
 ## Run it locally
 
