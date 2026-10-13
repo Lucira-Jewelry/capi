@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createFirestore, SendControl, TenantRegistry } from '../src';
+import { createFirestore, DispatchLog, SendControl, TenantRegistry } from '../src';
 
 // Needs the Firestore emulator:  npm run test:emulator
 const emulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
@@ -63,5 +63,23 @@ describe.skipIf(!emulator)('fresh tenant reads (Firestore emulator)', () => {
     expect((await registry.getTenant(tenant.tenantId))?.status).toBe('active'); // the cache, up to a minute behind
     expect((await registry.getTenant(tenant.tenantId, { fresh: true }))?.status).toBe('suspended');
     expect((await registry.getTenant(tenant.tenantId))?.status).toBe('suspended'); // and the cache was refreshed
+  });
+});
+
+describe.skipIf(!emulator)('last sending run (Firestore emulator)', () => {
+  it('keeps the scheduler run apart from a manual one, so a button press cannot hide a broken scheduler', async () => {
+    const log = new DispatchLog(db);
+    await db.collection('system').doc('dispatch').delete();
+    expect(await log.get()).toEqual({});
+
+    const t1 = new Date('2026-10-13T10:00:00Z');
+    const t2 = new Date('2026-10-13T11:30:00Z');
+    await log.record({ at: t1, source: 'scheduler', considered: 3, sent: 2, retried: 1, failed: 0 });
+    await log.record({ at: t2, source: 'console', considered: 1, sent: 1, retried: 0, failed: 0 });
+
+    expect(await log.get()).toEqual({
+      scheduler: { at: t1, source: 'scheduler', considered: 3, sent: 2, retried: 1, failed: 0 },
+      console: { at: t2, source: 'console', considered: 1, sent: 1, retried: 0, failed: 0 },
+    });
   });
 });

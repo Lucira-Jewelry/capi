@@ -32,6 +32,16 @@ export interface SendOverview {
   /** Limits from the server's settings, if any. */
   tenants?: string[];
   destinations?: string[];
+  /** When sending last ran, by the scheduler and by the console button. Absent until the first run. */
+  lastRun?: { scheduler?: RunSummary; console?: RunSummary };
+}
+
+export interface RunSummary {
+  at: string;
+  considered: number;
+  sent: number;
+  retried: number;
+  failed: number;
 }
 
 export interface AdminDeps {
@@ -59,6 +69,8 @@ export interface AdminDeps {
   previewFor?: (tenantId: string, saleKey: string, destination: 'meta' | 'google_ads') => Promise<unknown | null>;
   /** Validate the saved Google connection without sending anything. */
   checkGoogleFor: (tenantId: string) => Promise<{ ok: boolean; message: string }>;
+  /** Send one made-up test event to the brand's Meta dataset, only ever with its test event code. */
+  checkMetaFor?: (tenantId: string) => Promise<{ ok: boolean; message: string; detail?: string; datasetId?: string; testEventCode?: string }>;
   /** Record a customer's withdrawal of consent (operator handling a privacy request). */
   withdrawFor: (tenant: TenantConfig, contact: { phone?: string; email?: string }) => Promise<{ keys: number; personFound: boolean }>;
   /** Public base URL of the collector, used to show the right script tag and webhook URLs. */
@@ -492,6 +504,11 @@ export async function handleAdmin(req: AdminRequest, deps: AdminDeps): Promise<A
     if (resend && method === 'POST') {
       const reset = await deps.salesFor(id).resetDelivery(resend[1]!, resend[2]!, now);
       return reset ? ok({ ok: true }) : fail(409, 'not_resendable', 'Only failed, retrying or sent deliveries can be resent.');
+    }
+
+    if (rest === '/connections/meta/test-event' && method === 'POST') {
+      if (!deps.checkMetaFor) return fail(501, 'not_supported');
+      return ok(await deps.checkMetaFor(id));
     }
 
     if (rest === '/connections/google_ads/check' && method === 'POST') {

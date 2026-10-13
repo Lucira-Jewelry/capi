@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Badge, Button, Card, Field, Input, Modal, useAction, useToast } from '@/components/ui';
 import { api } from '@/lib/api';
+import { ago, schedulerState } from '@/lib/runs';
 import { DEST_LABEL, type SendOverview } from '@/lib/types';
 
 /** The server-wide state of sending, with the operator's pause and resume. */
@@ -33,6 +34,7 @@ export function SendingStrip({ initial }: { initial: SendOverview }) {
             <Badge tone={!s.enabled ? 'neutral' : s.paused ? 'bad' : 'ok'}>{!s.enabled ? 'Off' : s.paused ? 'Paused' : 'On'}</Badge>
           </div>
           <p className="mt-1 text-sm text-muted">{sub}</p>
+          {s.enabled && <LastRun last={s.lastRun} />}
         </div>
         {s.enabled && (s.paused ? <Button variant="primary" disabled={busy} onClick={() => void resume()}>Resume sending</Button> : <Button onClick={() => setAsking(true)}>Pause all sending</Button>)}
       </div>
@@ -65,5 +67,22 @@ function PauseDialog({ open, onClose, onDone }: { open: boolean; onClose: () => 
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** When sending last ran. A scheduler that never calls is the usual reason sales sit "pending". */
+function LastRun({ last }: { last: SendOverview['lastRun'] }) {
+  const state = schedulerState(last);
+  if (state === 'ok' && last?.scheduler) {
+    const r = last.scheduler;
+    return <p className="mt-1 text-xs text-muted">Last scheduled run {ago(r.at)}: {r.considered === 0 ? 'nothing was waiting' : `${r.sent} sent, ${r.retried} to retry, ${r.failed} failed`}.</p>;
+  }
+  return (
+    <p role="status" className="mt-1.5 rounded-lg bg-warn-bg px-3 py-2 text-xs text-warn">
+      {state === 'never'
+        ? 'The scheduler has not run yet. Sales stay waiting until something calls POST /internal/dispatch (a Cloud Scheduler job, every minute).'
+        : `The last scheduled run was ${ago(last!.scheduler!.at)}. If it should run every minute, check the Cloud Scheduler job that calls POST /internal/dispatch.`}
+      {last?.console && ` A manual send ran ${ago(last.console.at)}.`}
+    </p>
   );
 }

@@ -60,6 +60,7 @@ describe.skipIf(!emulator)('admin API (Firestore emulator)', () => {
         });
       },
       checkGoogleFor: async () => ({ ok: true, message: 'ok' }),
+      checkMetaFor: async (tenantId) => ({ ok: true, message: `tested ${tenantId}`, datasetId: '999', testEventCode: 'TEST1' }),
       withdrawFor: (tenant, contact) => new Store(db, { tenantId: tenant.tenantId }).withdraw({ ...contact, defaultCountry: tenant.defaultCountry }),
       publicUrl: 'https://track.example.com/',
       now,
@@ -194,6 +195,16 @@ describe.skipIf(!emulator)('admin API (Firestore emulator)', () => {
     expect(await call('POST', `/tenants/${id}/connections/meta/enabled`, { enabled: false })).toMatchObject({ status: 200, body: { kind: 'meta', enabled: false } });
     expect((await call('GET', `/tenants/${id}`)).body).toMatchObject({ connections: [{ kind: 'meta', enabled: false }] });
     expect(await call('POST', `/tenants/${id}/connections/meta/enabled`, { enabled: true })).toMatchObject({ body: { enabled: true } });
+  });
+
+  it('sends a Meta test event for the brand it was asked about', async () => {
+    const b = await newBrand();
+    const id = b.tenant.tenantId;
+    expect(await call('POST', `/tenants/${id}/connections/meta/test-event`)).toMatchObject({
+      status: 200,
+      body: { ok: true, message: `tested ${id}`, datasetId: '999', testEventCode: 'TEST1' },
+    });
+    expect(await call('POST', '/tenants/no-such-brand/connections/meta/test-event')).toMatchObject({ status: 404 });
   });
 
   it('imports a CSV (dry run first), is idempotent, then sends and shows sales, stats and resend', async () => {

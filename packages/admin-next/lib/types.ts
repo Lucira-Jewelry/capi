@@ -128,6 +128,25 @@ export interface SendOverview {
   at?: string;
   tenants?: string[];
   destinations?: string[];
+  /** When sending last ran. Absent until the first run. */
+  lastRun?: { scheduler?: RunSummary; console?: RunSummary };
+}
+
+export interface RunSummary {
+  at: string;
+  considered: number;
+  sent: number;
+  retried: number;
+  failed: number;
+}
+
+/** The answer to "Send test event" on a Meta connection. */
+export interface MetaTestResult {
+  ok: boolean;
+  message: string;
+  detail?: string;
+  datasetId?: string;
+  testEventCode?: string;
 }
 
 export interface Meta {

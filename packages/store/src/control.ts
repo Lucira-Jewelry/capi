@@ -51,3 +51,39 @@ export class SendControl {
     return this.get();
   }
 }
+
+export interface DispatchRun {
+  at: Date;
+  /** 'scheduler' is the timer calling /internal/dispatch; 'console' is the "Send waiting sales now" button. */
+  source: 'scheduler' | 'console';
+  considered: number;
+  sent: number;
+  retried: number;
+  failed: number;
+}
+
+/**
+ * When sending last ran, kept in Firestore so every instance shows the same answer. If nothing calls the scheduler
+ * endpoint, sales just stay waiting and nothing says why: this makes that visible.
+ */
+export class DispatchLog {
+  constructor(private readonly db: Firestore) {}
+
+  private get doc() {
+    return this.db.collection('system').doc('dispatch');
+  }
+
+  async record(run: DispatchRun): Promise<void> {
+    // The scheduler's own run is kept apart from a manual one, so a button press cannot hide a broken scheduler.
+    await this.doc.set({ [run.source]: { at: run.at, considered: run.considered, sent: run.sent, retried: run.retried, failed: run.failed } }, { merge: true });
+  }
+
+  async get(): Promise<{ scheduler?: DispatchRun; console?: DispatchRun }> {
+    const d = (await this.doc.get()).data() ?? {};
+    const read = (source: 'scheduler' | 'console'): DispatchRun | undefined => {
+      const v = d[source];
+      return v?.at?.toDate ? { source, at: v.at.toDate(), considered: v.considered ?? 0, sent: v.sent ?? 0, retried: v.retried ?? 0, failed: v.failed ?? 0 } : undefined;
+    };
+    return { ...(read('scheduler') ? { scheduler: read('scheduler')! } : {}), ...(read('console') ? { console: read('console')! } : {}) };
+  }
+}

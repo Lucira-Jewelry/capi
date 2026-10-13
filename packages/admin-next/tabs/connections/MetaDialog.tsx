@@ -33,7 +33,7 @@ export function MetaDialog({ tenantId, conn, onClose, onSaved }: { tenantId: str
         <details className="rounded-lg border border-border px-3 py-2" open={Boolean(test)}>
           <summary className="cursor-pointer text-sm font-medium">Testing first? Add a test event code</summary>
           <div className="mt-3">
-            <Field label="Test event code" hint="While set, events appear under Test Events in Meta and do not count. Clear it to go live.">
+            <Field label="Test event code" hint="While set, events are sent with this test code, so Meta treats them as tests. Clear it to go live.">
               {(p) => <Input {...p} value={test} onChange={(e) => setTest(e.target.value)} placeholder="TEST12345" />}
             </Field>
           </div>

@@ -65,6 +65,15 @@ export function BrandPage() {
         <div role="status" className="rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">{view.data.sending.reason ?? 'Sending is switched off on this server.'}</div>
       )}
 
+      {view.data.connections.find((c) => c.kind === 'meta')?.testEventCode && (
+        <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-warn-bg px-4 py-3 text-sm text-warn">
+          <span>
+            <strong className="font-semibold">Test mode.</strong> Sales for Meta are sent with the test event code ( {view.data.connections.find((c) => c.kind === 'meta')!.testEventCode}). Meta treats them as tests, not live conversions. Remove the test code when you are done testing.
+          </span>
+          <Link href={href('connections')} className="font-medium underline">Open Ad accounts</Link>
+        </div>
+      )}
+
       <nav aria-label="Brand sections" className="flex flex-wrap gap-1 border-b border-border">
         {TABS.map(([key, label]) => (
           <Link key={key} href={href(key)} aria-current={tab === key ? 'page' : undefined} className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${tab === key ? 'border-accent text-text' : 'border-transparent text-muted hover:text-text'}`}>{label}</Link>

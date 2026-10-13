@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react';
 import { Card, Select, Skeleton } from '@/components/ui';
 import { useApi } from '@/lib/useApi';
 import type { Stats } from '@/lib/types';
+import { SchedulerNotice } from './overview/SchedulerNotice';
 import { AttentionCard } from './overview/AttentionCard';
 import { PlatformCard, SkipTable } from './overview/PlatformCards';
 import { SetupGuide, setupSteps } from './overview/SetupGuide';
@@ -49,6 +50,7 @@ export function Overview({ id, view }: TabProps) {
   return (
     <div className="space-y-6">
       <AttentionCard id={id} view={view} stats={first.data} />
+      <SchedulerNotice stats={first.data} />
       {guideOpen && <SetupGuide steps={steps} />}
       {/* A new brand sees only what to do next; the numbers appear once there is something to count. */}
       {(!guideOpen || first.data.sales > 0) && (

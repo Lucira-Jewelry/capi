@@ -196,7 +196,8 @@ describe('Overview: the numbers', () => {
     await userEvent.setup().selectOptions(screen.getByRole('combobox', { name: 'Period' }), '7');
     await waitFor(() => expect(screen.getByText('in the last 7 days')).toBeTruthy());
     expect(screen.getByText('7')).toBeTruthy();
-    expect(calls.map((c) => c.key)).toEqual(['GET /tenants/b1/stats?days=30', 'GET /tenants/b1/stats?days=7']);
+    // (the scheduler notice also asks for /sending; that is not what this test is about)
+    expect(calls.map((c) => c.key).filter((k) => k.includes('/stats'))).toEqual(['GET /tenants/b1/stats?days=30', 'GET /tenants/b1/stats?days=7']);
   });
 
   it('says so when the numbers cannot be loaded', async () => {

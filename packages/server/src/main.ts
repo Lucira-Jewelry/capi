@@ -1,8 +1,8 @@
-import { ConnectionsRepo, createFirestore, SalesRepo, SecretBox, SendControl, Store, TenantRegistry } from '@datahash/store';
+import { ConnectionsRepo, createFirestore, DispatchLog, SalesRepo, SecretBox, SendControl, Store, TenantRegistry } from '@datahash/store';
 import { eraseCustomer, processSale, withdrawCustomer } from '@datahash/ingest';
 import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { checkGoogleConnection, describeSendPolicy, dispatchDue, parseSendPolicy, parseServiceAccountKey, previewPayload, sendBlockReason, type DispatchSummary, type GoogleAppCredentials } from '@datahash/senders';
+import { checkGoogleConnection, checkMetaConnection, describeSendPolicy, dispatchDue, parseSendPolicy, parseServiceAccountKey, previewPayload, sendBlockReason, type DispatchSummary, type GoogleAppCredentials } from '@datahash/senders';
 import { createHttpServer } from './http';
 import { defaultCheckDeps } from './tracking-check';
 import { assertProductionConfig } from './config';
@@ -66,6 +66,7 @@ const registry = new TenantRegistry(db);
 const box = new SecretBox(secretsKey);
 
 const sendControl = new SendControl(db);
+const dispatchLog = new DispatchLog(db);
 const stores = new KeyedCache((tenantId, retentionDays) => new Store(db, { tenantId, ...(retentionDays ? { retentionDays } : {}) }));
 const salesRepos = new Map<string, SalesRepo>();
 // Pass the brand's retention wherever something may be written about a person; without it the 90-day default applies.
@@ -96,9 +97,15 @@ const sendBlockedFor = (tenantId: string, fresh = false) => async (destination?:
   return null;
 };
 
+const runSummary = (r: { at: Date; considered: number; sent: number; retried: number; failed: number }) => ({ at: r.at.toISOString(), considered: r.considered, sent: r.sent, retried: r.retried, failed: r.failed });
+
 const sendOverview = async () => {
   const pause = await sendControl.get();
+  const last = await dispatchLog.get().catch(() => ({}) as Awaited<ReturnType<DispatchLog['get']>>);
   return {
+    ...(last.scheduler || last.console
+      ? { lastRun: { ...(last.scheduler ? { scheduler: runSummary(last.scheduler) } : {}), ...(last.console ? { console: runSummary(last.console) } : {}) } }
+      : {}),
     enabled: sendPolicy.enabled,
     paused: pause.paused,
     ...(pause.reason ? { reason: pause.reason } : {}),
@@ -133,8 +140,20 @@ async function dispatchAll() {
     const r = await dispatchTenant(t.tenantId);
     if (r.considered > 0) results[t.tenantId] = r;
   }
+  // Even a run that found nothing waiting is recorded: it proves the scheduler is calling us.
+  await recordRun('scheduler', Object.values(results)).catch((e) => console.error('could not record the run', e instanceof Error ? e.message : e));
   return results;
 }
+
+const recordRun = (source: 'scheduler' | 'console', runs: DispatchSummary[]) =>
+  dispatchLog.record({
+    at: new Date(),
+    source,
+    considered: runs.reduce((n, r) => n + r.considered, 0),
+    sent: runs.reduce((n, r) => n + r.sent, 0),
+    retried: runs.reduce((n, r) => n + r.retried, 0),
+    failed: runs.reduce((n, r) => n + r.failed, 0),
+  });
 
 const server = createHttpServer({
   trackerFile: env('TRACKER_FILE') ?? new URL('../../tracker/dist/tracker.js', import.meta.url).pathname,
@@ -170,7 +189,11 @@ const server = createHttpServer({
     salesFor: salesOf,
     processFor: (tenant, sale) =>
       processSale(sale, tenant, { store: storeOf(tenant.tenantId, tenant.retentionDays), sales: salesOf(tenant.tenantId) }),
-    dispatchFor: dispatchTenant,
+    dispatchFor: async (tenantId) => {
+      const r = await dispatchTenant(tenantId);
+      await recordRun('console', [r]).catch(() => {});
+      return r;
+    },
     // A local `*.localhost` tracking name is only reachable on a development server, never on a deployed one.
     trackingCheckDeps: defaultCheckDeps({ allowLocalNames: /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(publicUrl) }),
     sendingFor: async (tenantId) => {
@@ -199,6 +222,12 @@ const server = createHttpServer({
       return previewPayload(destination, { saleKey, sale, touch }, conn?.settings ?? null);
     },
     checkGoogleFor: (tenantId) => checkGoogleConnection({ connections: connectionsOf(tenantId), google }),
+    // The test event is made-up data and only ever goes to Test Events, so the pause and the brand's own switch do not
+    // stop it; the server-level setting (OUTBOUND_SENDS and its allowed lists) still does.
+    checkMetaFor: async (tenantId) => {
+      const blocked = sendBlockReason(sendPolicy, tenantId, 'meta');
+      return blocked ? { ok: false, message: blocked } : checkMetaConnection({ connections: connectionsOf(tenantId) });
+    },
     withdrawFor: (tenant, contact) =>
       withdrawCustomer({ store: storeOf(tenant.tenantId, tenant.retentionDays), sales: salesOf(tenant.tenantId) }, { ...contact, defaultCountry: tenant.defaultCountry }),
     publicUrl,

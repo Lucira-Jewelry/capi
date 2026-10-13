@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConnectionsRepo, createFirestore, SecretBox } from '@datahash/store';
-import { checkGoogleConnection, clearGoogleTokenCache } from '../src';
+import { checkGoogleConnection, checkMetaConnection, clearGoogleTokenCache } from '../src';
 
 // Needs the Firestore emulator:  npm run test:emulator
 const emulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
@@ -76,5 +76,62 @@ describe.skipIf(!emulator)('checkGoogleConnection (Firestore emulator)', () => {
 
     const wrongKey = new ConnectionsRepo(db, new SecretBox(SecretBox.generateKey()), (connections as unknown as { col: { parent: { id: string } } }).col.parent.id);
     expect(await checkGoogleConnection({ connections: wrongKey, google: app })).toMatchObject({ ok: false, message: expect.stringContaining('decrypted') });
+  });
+});
+
+describe.skipIf(!emulator)('checkMetaConnection (Firestore emulator)', () => {
+  const connected = async (settings: { datasetId: string; testEventCode?: string }) => {
+    const connections = new ConnectionsRepo(db, box, `chk-${randomUUID()}`);
+    await connections.set('meta', settings, 'EAAG-secret-token');
+    return connections;
+  };
+  const bodyOf = (f: ReturnType<typeof vi.fn>) => JSON.parse((f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+
+  it('sends nothing at all without a test event code, so a fake purchase can never reach the live data', async () => {
+    const connections = await connected({ datasetId: '999' });
+    const fetchImpl = vi.fn();
+    const r = await checkMetaConnection({ connections, http: { fetchImpl: fetchImpl as never } });
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('Test event code');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('with a test code, sends one made-up purchase to Test Events only and says where to look', async () => {
+    const connections = await connected({ datasetId: '999', testEventCode: 'TEST66528' });
+    await connections.markStatus('meta', 'error', 'earlier problem');
+    const fetchImpl = vi.fn(async () => json({ events_received: 1, fbtrace_id: 'TRACE9' }));
+    const r = await checkMetaConnection({ connections, http: { fetchImpl: fetchImpl as never }, now: () => new Date('2026-10-13T10:00:00Z') });
+
+    expect(r).toMatchObject({ ok: true, datasetId: '999', testEventCode: 'TEST66528', detail: expect.stringContaining('events_received=1') });
+    expect(r.message).toContain('Test Events');
+    expect(r.message).toContain('TEST66528');
+    const body = bodyOf(fetchImpl);
+    expect(body.test_event_code).toBe('TEST66528');
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].event_id).toBe(`connection-check-${new Date('2026-10-13T10:00:00Z').getTime()}`);
+    expect(JSON.stringify(body)).not.toMatch(/@|\+91/); // only a hash of a made-up address
+    expect(JSON.stringify(r)).not.toContain('EAAG-secret-token');
+    expect((await connections.get('meta'))?.status).toBe('active');
+  });
+
+  it('a wrong token flags the connection; a temporary problem does not blame the brand', async () => {
+    const connections = await connected({ datasetId: '999', testEventCode: 'TEST1' });
+    const bad = await checkMetaConnection({ connections, http: { fetchImpl: (async () => json({ error: { code: 190, message: 'Invalid OAuth access token' } }, 401)) as never } });
+    expect(bad.ok).toBe(false);
+    expect((await connections.get('meta'))?.status).toBe('error');
+
+    const fine = await connected({ datasetId: '999', testEventCode: 'TEST1' });
+    const down = await checkMetaConnection({ connections: fine, http: { fetchImpl: (async () => json({ error: { code: 2, message: 'Service temporarily unavailable' } }, 503)) as never } });
+    expect(down).toMatchObject({ ok: false, message: expect.stringContaining('try again') });
+    expect((await fine.get('meta'))?.status).toBe('active');
+  });
+
+  it('says what is missing: no connection, unreadable token', async () => {
+    const none = new ConnectionsRepo(db, box, `chk-${randomUUID()}`);
+    expect(await checkMetaConnection({ connections: none })).toMatchObject({ ok: false, message: expect.stringContaining('not connected') });
+
+    const connections = await connected({ datasetId: '999', testEventCode: 'TEST1' });
+    const otherKey = new ConnectionsRepo(db, new SecretBox(SecretBox.generateKey()), (connections as unknown as { col: { parent: { id: string } } }).col.parent.id);
+    expect(await checkMetaConnection({ connections: otherKey })).toMatchObject({ ok: false, message: expect.stringContaining('cannot be decrypted') });
   });
 });
